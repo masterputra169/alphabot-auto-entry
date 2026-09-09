@@ -17,7 +17,7 @@
     "minWinnerCount": 0
   },
   "discord": {
-    "requireGuildWhitelist": true,
+    "requireGuildWhitelist": false,
     "guildMatchMode": "any",
     "guildIds": [],
     "refreshHours": 6
