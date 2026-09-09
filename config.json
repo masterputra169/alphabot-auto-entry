@@ -3,7 +3,7 @@
   "entry": {
     "delayMs": 700,
     "dryRun": false,
-    "skipCaptcha": true,
+    "skipCaptcha": false,
     "skipNftHolding": true,
     "skipTokenGated": true,
     "allowedBlockchains": [],
