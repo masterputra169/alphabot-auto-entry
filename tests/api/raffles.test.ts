@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   getRaffleWithRequirements, listActiveRaffles, register,
 } from '../../src/api/raffles.js';
-import type { AlphabotClient } from '../../src/api/client.js';
+import { ApiError, type AlphabotClient } from '../../src/api/client.js';
 
 function fakeClient(over: Record<string, unknown>): AlphabotClient {
   return { get: vi.fn(), post: vi.fn(), budgetRemaining: 28, ...over } as unknown as AlphabotClient;
@@ -99,6 +99,31 @@ describe('register', () => {
     const outcome = await register(fakeClient({ post }), { slug: 's' });
     expect(outcome.success).toBe(true);
     expect(outcome.entries).toBeNull();
+  });
+
+  it('unwraps a declined registration into an outcome, keeping the machine reason', async () => {
+    const post = vi.fn().mockRejectedValue(new ApiError(
+      'Alphabot request failed: Opportunity has ended', 200, true,
+      { validation: { success: false, reason: 'opportunity_ended', entries: 0 },
+        resultMd: 'Opportunity has ended' },
+    ));
+
+    const outcome = await register(fakeClient({ post }), { slug: 's' });
+
+    expect(outcome.success).toBe(false);
+    expect(outcome.reason).toBe('opportunity_ended');
+    expect(outcome.resultMd).toBe('Opportunity has ended');
+  });
+
+  it('falls back to the error message when a decline carries no validation', async () => {
+    const post = vi.fn().mockRejectedValue(new ApiError('nope', 200, true, undefined));
+    const outcome = await register(fakeClient({ post }), { slug: 's' });
+    expect(outcome).toMatchObject({ success: false, reason: 'nope' });
+  });
+
+  it('rethrows an error whose outcome is unknown', async () => {
+    const post = vi.fn().mockRejectedValue(new ApiError('server error', 500, false));
+    await expect(register(fakeClient({ post }), { slug: 's' })).rejects.toBeInstanceOf(ApiError);
   });
 
   it('tolerates an entirely empty response', async () => {

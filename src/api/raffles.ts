@@ -1,4 +1,4 @@
-import type { AlphabotClient } from './client.js';
+import { ApiError, type AlphabotClient } from './client.js';
 import type {
   RafflesListData, RaffleForList, RaffleWithRequirements, RegisterResponse,
 } from './types.js';
@@ -60,6 +60,16 @@ export interface RegisterOutcome {
   resultMd: string | null;
 }
 
+function toOutcome(data: RegisterResponse | undefined, fallbackReason?: string): RegisterOutcome {
+  const validation = data?.validation;
+  return {
+    success: validation?.success ?? true,
+    entries: validation?.entries ?? null,
+    reason: validation?.reason ?? fallbackReason ?? null,
+    resultMd: data?.resultMd ?? null,
+  };
+}
+
 export async function register(
   client: AlphabotClient,
   input: RegisterInput,
@@ -70,13 +80,16 @@ export async function register(
     if (value !== undefined && value !== null) body[key] = value;
   }
 
-  const data = await client.post<RegisterResponse | undefined>('register', body);
-  const validation = data?.validation;
-
-  return {
-    success: validation?.success ?? true,
-    entries: validation?.entries ?? null,
-    reason: validation?.reason ?? null,
-    resultMd: data?.resultMd ?? null,
-  };
+  try {
+    return toOutcome(await client.post<RegisterResponse | undefined>('register', body));
+  } catch (error) {
+    // Alphabot refuses a registration with `success: false` and still returns
+    // the validation object. That is an answer, not a failure, so unwrap it
+    // rather than letting it surface as an exception.
+    if (error instanceof ApiError && error.declined) {
+      const data = error.data as RegisterResponse | undefined;
+      return { ...toOutcome(data, error.message), success: false };
+    }
+    throw error;
+  }
 }

@@ -69,6 +69,17 @@ export class EntryStore {
     return count;
   }
 
+  /** How many currently-blocked raffles sit behind each rejection reason. */
+  blockedByReason(now: number = Date.now()): Record<string, number> {
+    const counts: Record<string, number> = {};
+    for (const record of this.records.values()) {
+      if (record.success || !this.isBlocked(record.slug, now)) continue;
+      const key = record.reason ?? 'unknown';
+      counts[key] = (counts[key] ?? 0) + 1;
+    }
+    return counts;
+  }
+
   /** True while this raffle must not be attempted again. */
   isBlocked(slug: string, now: number = Date.now()): boolean {
     const record = this.records.get(slug);

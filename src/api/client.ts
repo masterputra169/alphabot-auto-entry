@@ -19,8 +19,16 @@ export class ApiError extends Error {
    * @param declined True when Alphabot processed the request and refused it,
    * so nothing was created. False when the outcome is unknown — a 5xx, or
    * retries exhausted — which callers must not treat as safe to repeat.
+   * @param data The envelope's `data` when there was one. A refusal still
+   * carries a `validation` object naming the machine-readable reason, which
+   * is far more useful than the English sentence in `errors`.
    */
-  constructor(message: string, readonly status: number, readonly declined = false) {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly declined = false,
+    readonly data?: unknown,
+  ) {
     super(message);
   }
 }
@@ -162,6 +170,7 @@ export class AlphabotClient {
             : `Alphabot request failed (${response.status})`,
           response.status,
           true,
+          envelope?.data,
         );
       }
 

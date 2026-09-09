@@ -26,6 +26,9 @@ interface QueueItem {
 
 const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
+/** Rejection reasons that will never become satisfiable. Observed in production. */
+const FINAL_REASONS = new Set(['opportunity_ended']);
+
 /**
  * Single consumer for both producers (webhook and poller). Owns dedupe and
  * pacing so neither producer needs to know about the other.
@@ -139,7 +142,7 @@ export class EntryQueue {
         success: outcome.success,
         entries: outcome.entries,
         reason: outcome.reason,
-        retryAfter: outcome.success ? null : this.retryAt(),
+        retryAfter: outcome.success ? null : this.retryAt(outcome.reason),
       });
 
       if (outcome.success) {
@@ -173,7 +176,7 @@ export class EntryQueue {
         success: false,
         entries: null,
         reason: message,
-        retryAfter: declined ? this.retryAt() : null,
+        retryAfter: declined ? this.retryAt(null) : null,
       });
 
       if (declined) {
@@ -185,7 +188,13 @@ export class EntryQueue {
     }
   }
 
-  private retryAt(): number {
+  /**
+   * When to try again, or null for never. A raffle that has ended can never
+   * be entered, so rescheduling it would burn register calls for nothing.
+   * Anything else the owner may still be able to satisfy.
+   */
+  private retryAt(reason: string | null): number | null {
+    if (reason !== null && FINAL_REASONS.has(reason)) return null;
     return Date.now() + this.deps.config.entry.retryHours * 3_600_000;
   }
 }

@@ -103,6 +103,24 @@ describe('EntryStore', () => {
     expect(store.isBlocked('later', 5000)).toBe(false);
   });
 
+  it('groups currently-blocked raffles by reason', async () => {
+    const store = await EntryStore.open(tempDir());
+    const future = Date.now() + 60_000;
+    await store.record({ ...rec('a'), success: false, reason: 'tasks', retryAfter: future });
+    await store.record({ ...rec('b'), success: false, reason: 'tasks', retryAfter: future });
+    await store.record({ ...rec('c'), success: false, reason: 'ended', retryAfter: null });
+    await store.record({ ...rec('d'), success: true, retryAfter: null });
+
+    expect(store.blockedByReason()).toEqual({ tasks: 2, ended: 1 });
+  });
+
+  it('drops a reason once its cooldown has passed', async () => {
+    const store = await EntryStore.open(tempDir());
+    await store.record({ ...rec('a'), success: false, reason: 'tasks', retryAfter: 5000 });
+    expect(store.blockedByReason(4999)).toEqual({ tasks: 1 });
+    expect(store.blockedByReason(5001)).toEqual({});
+  });
+
   it('keeps the in-memory record when the disk write fails', async () => {
     const store = await EntryStore.open(tempDir());
     const spy = vi

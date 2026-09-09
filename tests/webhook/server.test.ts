@@ -39,7 +39,7 @@ function start(over: Partial<ServerDeps> = {}) {
     queue: { submit, depth: 0 },
     notifier: { won: vi.fn(async () => {}) } as never,
     guilds: { connected: true, lastRefreshedAt: 1, saveTokens } as never,
-    store: { size: 3, enteredCount: 2 },
+    store: { size: 3, enteredCount: 2, blockedByReason: () => ({ opportunity_ended: 1 }) },
     client: { budgetRemaining: 27 },
     startedAt: Date.now(),
     ...over,
@@ -71,6 +71,7 @@ describe('server', () => {
     expect(body.ok).toBe(true);
     expect(body.attempted).toBe(3);
     expect(body.entered).toBe(2);
+    expect(body.blockedBy).toEqual({ opportunity_ended: 1 });
     expect(body.getBudgetRemaining).toBe(27);
     expect(body.discordConnected).toBe(true);
   });

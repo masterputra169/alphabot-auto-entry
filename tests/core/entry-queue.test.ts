@@ -154,6 +154,18 @@ describe('EntryQueue', () => {
     expect(record.retryAfter).toBeGreaterThan(Date.now());
   });
 
+  it('never reschedules a raffle that has already ended', async () => {
+    const post = vi.fn(async () => ({
+      validation: { success: false, reason: 'opportunity_ended' },
+    }));
+    const { queue, store } = harness({ client: { post, get: vi.fn() } });
+    queue.submit(raffle(), 'webhook');
+    await queue.idle();
+
+    const record = store.record.mock.calls[0]?.[0] as { retryAfter: number | null };
+    expect(record.retryAfter).toBeNull();
+  });
+
   it('keeps an unknown failure permanent so it cannot double-enter', async () => {
     const post = vi.fn().mockRejectedValue(new Error('socket hang up'));
     const { queue, store, notifier } = harness({ client: { post, get: vi.fn() } });

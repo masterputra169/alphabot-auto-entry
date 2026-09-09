@@ -74,7 +74,8 @@ node dist/index.js --dry-run   # rehearse without registering anything
    `https://<your-domain>/alphabot`. Alphabot sends `webhook:test`; a 200 saves it.
 
 `https://<your-domain>/health` reports uptime, queue depth, remaining GET budget, `attempted`
-(every raffle tried) versus `entered` (the ones Alphabot accepted), and whether Discord is
+(every raffle tried) versus `entered` (the ones Alphabot accepted), `blockedBy` (a count of the
+raffles currently held back, grouped by Alphabot's own rejection reason), and whether Discord is
 connected.
 
 ## Tuning
@@ -88,7 +89,7 @@ balance, or a Discord server you have not joined.
 | `entry.allowedBlockchains` | e.g. `["ethereum", "solana"]`; empty means all |
 | `entry.excludeKeywords` | Case-insensitive substrings matched against the raffle name |
 | `entry.minWinnerCount` | Ignore raffles with very few winners |
-| `entry.retryHours` | How long before a declined entry is attempted again (default 6) |
+| `entry.retryHours` | How long before a declined entry is attempted again (default 6). A raffle Alphabot reports as ended is never rescheduled. |
 | `entry.skipNftHolding` | Set `false` to attempt raffles requiring an NFT you may hold |
 | `entry.skipCaptcha` | Default `false`: attempt CAPTCHA-flagged raffles and let Alphabot decide |
 | `discord.requireGuildWhitelist` | Set `false` to attempt Discord-gated raffles regardless |
