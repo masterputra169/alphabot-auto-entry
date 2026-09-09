@@ -7,7 +7,9 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       include: ['src/**/*.ts'],
-      exclude: ['src/index.ts'],
+      // index.ts is the bootstrap; types.ts declares interfaces only and
+      // compiles to no runtime code, so neither is meaningfully coverable.
+      exclude: ['src/index.ts', 'src/api/types.ts'],
       thresholds: { lines: 80, functions: 80, branches: 75, statements: 80 },
     },
   },
