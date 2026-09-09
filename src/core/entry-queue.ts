@@ -127,7 +127,7 @@ export class EntryQueue {
     if (config.entry.dryRun) {
       log.info(`DRY RUN would enter ${raffle.slug}`, { name: raffle.name, source });
       await notifier.entered(raffle, {
-        success: true, entries: null, reason: null, resultMd: 'dry run',
+        success: true, entries: null, reason: null, resultMd: 'dry run', blockers: [],
       });
       return;
     }
@@ -142,6 +142,7 @@ export class EntryQueue {
         success: outcome.success,
         entries: outcome.entries,
         reason: outcome.reason,
+        blockers: outcome.blockers,
         retryAfter: outcome.success ? null : this.retryAt(outcome.reason),
       });
 

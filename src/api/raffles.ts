@@ -1,6 +1,7 @@
 import { ApiError, type AlphabotClient } from './client.js';
 import type {
   RafflesListData, RaffleForList, RaffleWithRequirements, RegisterResponse,
+  ValidationResult,
 } from './types.js';
 
 export interface ListOptions {
@@ -58,6 +59,26 @@ export interface RegisterOutcome {
   entries: number | null;
   reason: string | null;
   resultMd: string | null;
+  /** Task categories Alphabot reported as outstanding, e.g. `['discord']`. */
+  blockers: string[];
+}
+
+/** Validation flag to the task it represents. Only an explicit false counts. */
+const TASK_FLAGS: [keyof ValidationResult, string][] = [
+  ['discordValid', 'discord'],
+  ['twitterValid', 'twitter'],
+  ['telegramValid', 'telegram'],
+  ['instagramValid', 'instagram'],
+  ['tokensValid', 'tokens'],
+  ['ethBalanceValid', 'eth_balance'],
+  ['emailValid', 'email'],
+  ['questionsValid', 'questions'],
+  ['walletValid', 'wallet'],
+];
+
+export function blockersFrom(validation: ValidationResult | undefined): string[] {
+  if (!validation) return [];
+  return TASK_FLAGS.filter(([flag]) => validation[flag] === false).map(([, task]) => task);
 }
 
 function toOutcome(data: RegisterResponse | undefined, fallbackReason?: string): RegisterOutcome {
@@ -67,6 +88,7 @@ function toOutcome(data: RegisterResponse | undefined, fallbackReason?: string):
     entries: validation?.entries ?? null,
     reason: validation?.reason ?? fallbackReason ?? null,
     resultMd: data?.resultMd ?? null,
+    blockers: blockersFrom(validation),
   };
 }
 

@@ -121,6 +121,25 @@ describe('EntryStore', () => {
     expect(store.blockedByReason(5001)).toEqual({});
   });
 
+  it('counts how many blocked raffles each outstanding task holds up', async () => {
+    const store = await EntryStore.open(tempDir());
+    const soon = Date.now() + 60_000;
+    await store.record({ ...rec('a'), success: false, retryAfter: soon, blockers: ['discord'] });
+    await store.record({
+      ...rec('b'), success: false, retryAfter: soon, blockers: ['discord', 'twitter'],
+    });
+    await store.record({ ...rec('c'), success: true, retryAfter: null, blockers: [] });
+
+    expect(store.blockedByTask()).toEqual({ discord: 2, twitter: 1 });
+  });
+
+  it('ignores blockers on records that are no longer blocked', async () => {
+    const store = await EntryStore.open(tempDir());
+    await store.record({ ...rec('a'), success: false, retryAfter: 5000, blockers: ['discord'] });
+    expect(store.blockedByTask(4999)).toEqual({ discord: 1 });
+    expect(store.blockedByTask(5001)).toEqual({});
+  });
+
   it('keeps the in-memory record when the disk write fails', async () => {
     const store = await EntryStore.open(tempDir());
     const spy = vi

@@ -75,8 +75,12 @@ node dist/index.js --dry-run   # rehearse without registering anything
 
 `https://<your-domain>/health` reports uptime, queue depth, remaining GET budget, `attempted`
 (every raffle tried) versus `entered` (the ones Alphabot accepted), `blockedBy` (a count of the
-raffles currently held back, grouped by Alphabot's own rejection reason), and whether Discord is
-connected.
+raffles currently held back, grouped by Alphabot's own rejection reason), `blockedByTask`, and
+whether Discord is connected.
+
+`blockedByTask` is the useful one: it counts how many raffles each outstanding task is holding up,
+so `{"discord": 47, "twitter": 12}` means joining the right Discord servers unlocks the most.
+Alphabot reports these per category, and only a category it explicitly marks failed is counted.
 
 ## Tuning
 

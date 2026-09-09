@@ -58,16 +58,35 @@ export interface RaffleRequirements {
 
 export type RaffleWithRequirements = RaffleForList & RaffleRequirements;
 
+/**
+ * Per-category outcome of Alphabot's entry checks.
+ *
+ * A flag is `true` when satisfied, `false` when the task is outstanding, and
+ * `null` when the raffle does not ask for it — so only an explicit `false`
+ * means the owner has something to do.
+ *
+ * `instagramValid`, `telegramValid` and `walletValid` are absent from the
+ * published OpenAPI document but are returned by the live API.
+ */
 export interface ValidationResult {
   entries?: number;
   success?: boolean;
   reason?: string;
-  discordValid?: boolean;
-  twitterValid?: boolean;
-  tokensValid?: boolean;
-  emailValid?: boolean;
-  ethBalanceValid?: boolean;
-  questionsValid?: boolean;
+  discordValid?: boolean | null;
+  discordRefresh?: boolean;
+  discordValidations?: boolean[];
+  twitterValid?: boolean | null;
+  twitterValidations?: boolean[];
+  telegramValid?: boolean | null;
+  telegramValidations?: boolean[];
+  instagramValid?: boolean | null;
+  instagramValidations?: boolean[];
+  tokensValid?: boolean | null;
+  tokensValidations?: boolean[];
+  emailValid?: boolean | null;
+  ethBalanceValid?: boolean | null;
+  questionsValid?: boolean | null;
+  walletValid?: boolean | null;
   passwordInvalid?: boolean;
 }
 

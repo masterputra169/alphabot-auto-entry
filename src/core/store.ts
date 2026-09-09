@@ -18,6 +18,8 @@ export interface EntryRecord {
    * unknown, is permanent — retrying either risks a double entry.
    */
   retryAfter?: number | null;
+  /** Task categories Alphabot reported outstanding, e.g. `['discord']`. */
+  blockers?: string[];
 }
 
 const FILE_NAME = 'entered.json';
@@ -76,6 +78,22 @@ export class EntryStore {
       if (record.success || !this.isBlocked(record.slug, now)) continue;
       const key = record.reason ?? 'unknown';
       counts[key] = (counts[key] ?? 0) + 1;
+    }
+    return counts;
+  }
+
+  /**
+   * How many currently-blocked raffles each outstanding task is holding up.
+   * This is the answer to "what should I go and do": completing the task at
+   * the top of the list unlocks the most raffles.
+   */
+  blockedByTask(now: number = Date.now()): Record<string, number> {
+    const counts: Record<string, number> = {};
+    for (const record of this.records.values()) {
+      if (record.success || !this.isBlocked(record.slug, now)) continue;
+      for (const task of record.blockers ?? []) {
+        counts[task] = (counts[task] ?? 0) + 1;
+      }
     }
     return counts;
   }

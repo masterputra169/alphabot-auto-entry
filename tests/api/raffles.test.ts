@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
-  getRaffleWithRequirements, listActiveRaffles, register,
+  blockersFrom, getRaffleWithRequirements, listActiveRaffles, register,
 } from '../../src/api/raffles.js';
 import { ApiError, type AlphabotClient } from '../../src/api/client.js';
 
@@ -62,6 +62,32 @@ describe('getRaffleWithRequirements', () => {
   });
 });
 
+describe('blockersFrom', () => {
+  it('reports only the categories explicitly marked false', () => {
+    // Shape captured from a live decline: null means the raffle does not ask.
+    expect(blockersFrom({
+      discordValid: false,
+      twitterValid: null,
+      tokensValid: true,
+      ethBalanceValid: true,
+      emailValid: true,
+      telegramValid: true,
+      instagramValid: true,
+      walletValid: true,
+    })).toEqual(['discord']);
+  });
+
+  it('reports several outstanding tasks at once', () => {
+    expect(blockersFrom({ discordValid: false, twitterValid: false }))
+      .toEqual(['discord', 'twitter']);
+  });
+
+  it('returns nothing for a clean validation or none at all', () => {
+    expect(blockersFrom({ discordValid: true })).toEqual([]);
+    expect(blockersFrom(undefined)).toEqual([]);
+  });
+});
+
 describe('register', () => {
   it('omits undefined submission fields', async () => {
     const post = vi.fn(async () => ({ validation: { success: true, entries: 3 } }));
@@ -70,7 +96,9 @@ describe('register', () => {
     const outcome = await register(client, { slug: 'cool-raffle', discordId: '42' });
 
     expect(post).toHaveBeenCalledWith('register', { slug: 'cool-raffle', discordId: '42' });
-    expect(outcome).toEqual({ success: true, entries: 3, reason: null, resultMd: null });
+    expect(outcome).toEqual({
+      success: true, entries: 3, reason: null, resultMd: null, blockers: [],
+    });
   });
 
   it('passes every provided submission override', async () => {
@@ -115,6 +143,24 @@ describe('register', () => {
     expect(outcome.resultMd).toBe('Opportunity has ended');
   });
 
+  it('extracts the outstanding tasks from a declined registration', async () => {
+    const post = vi.fn().mockRejectedValue(new ApiError(
+      'Alphabot request failed: One or more tasks incomplete.', 200, true,
+      {
+        validation: {
+          success: false, reason: 'validation_failed',
+          discordValid: false, twitterValid: null, tokensValid: true,
+        },
+        resultMd: 'One or more tasks incomplete: Discord requirement(s)',
+      },
+    ));
+
+    const outcome = await register(fakeClient({ post }), { slug: 's' });
+
+    expect(outcome.reason).toBe('validation_failed');
+    expect(outcome.blockers).toEqual(['discord']);
+  });
+
   it('falls back to the error message when a decline carries no validation', async () => {
     const post = vi.fn().mockRejectedValue(new ApiError('nope', 200, true, undefined));
     const outcome = await register(fakeClient({ post }), { slug: 's' });
@@ -129,7 +175,7 @@ describe('register', () => {
   it('tolerates an entirely empty response', async () => {
     const post = vi.fn(async () => undefined);
     await expect(register(fakeClient({ post }), { slug: 's' })).resolves.toEqual({
-      success: true, entries: null, reason: null, resultMd: null,
+      success: true, entries: null, reason: null, resultMd: null, blockers: [],
     });
   });
 });
