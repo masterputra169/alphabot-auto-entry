@@ -140,8 +140,10 @@ describe('EntryQueue', () => {
     expect(record.retryAfter).toBeNull();
   });
 
-  it('treats a 400 from alphabot as a retryable rejection', async () => {
-    const post = vi.fn().mockRejectedValue(new ApiError('One or more tasks incomplete.', 400));
+  it('treats a declined registration as a retryable rejection', async () => {
+    const post = vi.fn().mockRejectedValue(
+      new ApiError('One or more tasks incomplete.', 200, true),
+    );
     const { queue, store, notifier } = harness({ client: { post, get: vi.fn() } });
     queue.submit(raffle(), 'webhook');
     await queue.idle();
@@ -164,7 +166,7 @@ describe('EntryQueue', () => {
   });
 
   it('keeps a 500 permanent because the outcome is unknown', async () => {
-    const post = vi.fn().mockRejectedValue(new ApiError('server error', 500));
+    const post = vi.fn().mockRejectedValue(new ApiError('server error', 500, false));
     const { queue, store } = harness({ client: { post, get: vi.fn() } });
     queue.submit(raffle(), 'webhook');
     await queue.idle();

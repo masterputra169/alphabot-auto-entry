@@ -132,6 +132,21 @@ describe('AlphabotClient', () => {
       .rejects.toBeInstanceOf(ApiError);
   });
 
+  it('marks an envelope failure as declined, so callers may retry it', async () => {
+    // Alphabot refuses a registration with HTTP 200 and success:false.
+    const fetchImpl = vi.fn(async () => jsonResponse(
+      { success: false, errors: [{ message: 'One or more tasks incomplete.' }] }, 200,
+    ));
+    await expect(makeClient(fetchImpl).post('register', {}))
+      .rejects.toMatchObject({ declined: true, status: 200 });
+  });
+
+  it('does not mark a 5xx as declined, since the outcome is unknown', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({ success: false }, 500));
+    await expect(makeClient(fetchImpl, { maxRetries: 0 }).get('raffles'))
+      .rejects.toMatchObject({ declined: false });
+  });
+
   it('refuses a GET once the hourly budget is spent', async () => {
     const fetchImpl = vi.fn(async () => jsonResponse({ success: true, data: 1 }));
     const client = makeClient(fetchImpl, { getBucket: new TokenBucket(1, 3_600_000) });

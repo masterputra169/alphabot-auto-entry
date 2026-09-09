@@ -161,10 +161,10 @@ export class EntryQueue {
       }
 
       const message = (error as Error).message;
-      // A 400 is Alphabot declining the entry: nothing was registered, and the
+      // Alphabot declining the entry means nothing was registered, and the
       // owner may well complete the missing task later, so allow a retry.
-      // Anything else leaves the outcome unknown, so it stays permanent.
-      const declined = error instanceof ApiError && error.status === 400;
+      // An unknown outcome (5xx, network, retries exhausted) stays permanent.
+      const declined = error instanceof ApiError && error.declined;
 
       await store.record({
         slug: raffle.slug,

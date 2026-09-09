@@ -15,7 +15,12 @@ export class RateLimitError extends Error {
 }
 
 export class ApiError extends Error {
-  constructor(message: string, readonly status: number) {
+  /**
+   * @param declined True when Alphabot processed the request and refused it,
+   * so nothing was created. False when the outcome is unknown — a 5xx, or
+   * retries exhausted — which callers must not treat as safe to repeat.
+   */
+  constructor(message: string, readonly status: number, readonly declined = false) {
     super(message);
   }
 }
@@ -148,11 +153,15 @@ export class AlphabotClient {
 
       if (!response.ok || envelope?.success === false) {
         const detail = envelope?.errors?.map((e) => e.message).filter(Boolean).join('; ');
+        // Alphabot answers a refused registration with HTTP 200 and
+        // `success: false`, not a 4xx, so the envelope is what marks a
+        // decision rather than the status code.
         throw new ApiError(
           detail
             ? `Alphabot request failed: ${detail}`
             : `Alphabot request failed (${response.status})`,
           response.status,
+          true,
         );
       }
 
