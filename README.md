@@ -11,9 +11,10 @@ Requires an active Alphabot subscription — the API is subscription-gated.
 - **Webhooks are the primary trigger.** The `raffle:active` payload carries the full requirement
   set, including `discordServerRoles` — the exact Discord servers a raffle is gated on. That data
   costs nothing to receive.
-- **Polling is only a safety net.** `GET /raffles` is limited to 30 requests per hour, so the
-  client caps usable GETs at 28 per rolling hour and the poller runs every 10 minutes to cover
-  the window where the bot was down.
+- **Polling is the safety net.** `GET /raffles` is limited to 30 requests per hour, so the client
+  caps usable GETs at 28 per rolling hour and the poller runs every 10 minutes to cover the window
+  where the bot was down. It also resolves Discord-gated raffles the list endpoint cannot describe,
+  by fetching their requirements individually within the leftover budget.
 - **Discord matching is real.** Raffles are checked against the servers you have actually joined,
   read through OAuth2 with the `identify guilds` scope. No user token, no self-bot — that would
   violate Discord's Terms of Service.
@@ -72,8 +73,8 @@ raffles have been attempted, and whether Discord is connected.
 
 ## Tuning
 
-Edit `config.json` and redeploy. The defaults skip raffles needing a CAPTCHA, an NFT holding, a
-token or ETH balance, or a Discord server you have not joined.
+Edit `config.json` and redeploy. The defaults skip raffles needing an NFT holding, a token or ETH
+balance, or a Discord server you have not joined.
 
 | Setting | Effect |
 |---|---|
@@ -82,18 +83,25 @@ token or ETH balance, or a Discord server you have not joined.
 | `entry.excludeKeywords` | Case-insensitive substrings matched against the raffle name |
 | `entry.minWinnerCount` | Ignore raffles with very few winners |
 | `entry.skipNftHolding` | Set `false` to attempt raffles requiring an NFT you may hold |
+| `entry.skipCaptcha` | Default `false`: attempt CAPTCHA-flagged raffles and let Alphabot decide |
 | `discord.requireGuildWhitelist` | Set `false` to attempt Discord-gated raffles regardless |
 | `poll.intervalSeconds` | Minimum 120; the default 600 spends 6 of the 30 hourly GETs |
+| `poll.resolveDiscordRequirements` | Set `false` to stop the poller fetching requirements for Discord-gated raffles |
+| `poll.maxResolvesPerCycle` | How many of those fetches one cycle may make (default 10) |
 
 Any `submission` field left `null` is omitted from the request, so Alphabot uses your profile
 defaults — which is what you want in almost every case.
 
 ## Limitations
 
-- CAPTCHA-gated raffles are never entered. That gate exists to require a human.
+- CAPTCHA-flagged raffles are attempted, not solved. The API's `validation` object has no captcha
+  field, so it is unclear whether `POST /register` checks that requirement at all; the bot lets
+  Alphabot answer and reports whatever comes back. Set `entry.skipCaptcha: true` to filter them out
+  again. Nothing here reads or solves a CAPTCHA image.
 - While the container is asleep or redeploying, `raffle:active` events are lost. The poller
-  catches most of them afterwards, except Discord-gated ones: the list endpoint does not say
-  which server a raffle requires, and resolving it would spend the scarce GET budget.
+  recovers them afterwards, including Discord-gated ones, but resolution is rate-limited to
+  roughly 22 raffles per hour by the 30 GET/hour API budget. A large backlog is worked through
+  soonest-ending first, so the most urgent raffles are handled first.
 - Railway has no permanent free tier. The service must stay awake for webhooks to arrive.
 
 ## Development

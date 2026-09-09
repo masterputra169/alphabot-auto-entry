@@ -1,5 +1,11 @@
 {
-  "poll": { "enabled": true, "intervalSeconds": 600, "pageSize": 50 },
+  "poll": {
+    "enabled": true,
+    "intervalSeconds": 600,
+    "pageSize": 50,
+    "resolveDiscordRequirements": true,
+    "maxResolvesPerCycle": 10
+  },
   "entry": {
     "delayMs": 700,
     "dryRun": false,

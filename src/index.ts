@@ -64,7 +64,7 @@ async function main(): Promise<void> {
     onAuthError: () => poller?.stop(),
   });
 
-  poller = new Poller({ config, client, queue });
+  poller = new Poller({ config, client, queue, store });
 
   const server = createServer({
     config,

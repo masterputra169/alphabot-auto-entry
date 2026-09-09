@@ -155,13 +155,29 @@ The known guild set is the union of the OAuth2-derived guild list and any ids in
 are set, `requireGuildWhitelist` degrades to "skip every Discord-gated raffle", and the bot warns
 once at startup so the degradation is never silent.
 
-Raffles arriving from the poller carry only `RaffleForList` — no `discordServerRoles`. Resolving
-which guild such a raffle requires would cost a `GET /raffles/{slug}?requirements=true` against
-the 30/hour budget. For v1 the poller path therefore skips them with reason
-`discord_requirements_unknown` whenever `requireGuildWhitelist` is on. This is a deliberate,
-documented limitation: the webhook path is where Discord-gated raffles are meant to be caught,
-and the poller exists only to cover downtime. Spending spare GET budget to resolve these is a
-possible later enhancement, not v1.
+Raffles arriving from the poller carry only `RaffleForList` — no `discordServerRoles`. The filter
+alone would skip them with `discord_requirements_unknown`, which would leave the entire backlog of
+already-active Discord-gated raffles permanently unreachable.
+
+The poller therefore resolves them before submitting: for each listed raffle whose `reqString`
+contains `d` or `r`, it fetches `GET /raffles/{slug}?requirements=true` and submits the enriched
+object, which then takes the normal `discordServerRoles` branch of rule 9.
+
+Three guards keep this inside the 30/hour budget:
+
+- `poll.maxResolvesPerCycle` (default 10) caps the work per cycle.
+- Resolution stops while `client.budgetRemaining` is at or below a reserve of 4, so the next
+  cycle's list call always fits.
+- Each slug is resolved at most once per process, and never if it is already in the store. A slug
+  whose resolution failed for an ordinary reason is also marked done, so one broken raffle cannot
+  burn the budget every cycle. A slug denied by the budget is *not* marked, so it is retried.
+
+Because the list is sorted `ending` ascending, the most urgent raffles are resolved first. The
+token bucket remains the hard backstop: if it refuses, the raffle is submitted unresolved and the
+filter skips it, to be retried on a later cycle.
+
+The `resolved` set is in memory only. A restart re-resolves, which is bounded by the same guards —
+accepted rather than adding another persisted state file.
 
 ## 6. Configuration
 

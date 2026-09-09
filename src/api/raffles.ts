@@ -1,9 +1,33 @@
 import type { AlphabotClient } from './client.js';
-import type { RafflesListData, RaffleForList, RegisterResponse } from './types.js';
+import type {
+  RafflesListData, RaffleForList, RaffleWithRequirements, RegisterResponse,
+} from './types.js';
 
 export interface ListOptions {
   pageSize?: number;
   pageNum?: number;
+}
+
+interface SingleRaffleData {
+  raffle: RaffleWithRequirements;
+}
+
+/**
+ * Fetches one raffle including its full requirements — notably
+ * `discordServerRoles`, which the list endpoint does not expose.
+ *
+ * Costs one request from the 30/hour GET budget, so callers must check
+ * the client's remaining budget before looping over this.
+ */
+export async function getRaffleWithRequirements(
+  client: AlphabotClient,
+  slug: string,
+): Promise<RaffleWithRequirements | undefined> {
+  const data = await client.get<SingleRaffleData | undefined>(
+    `raffles/${encodeURIComponent(slug)}`,
+    { requirements: 'true' },
+  );
+  return data?.raffle;
 }
 
 export async function listActiveRaffles(

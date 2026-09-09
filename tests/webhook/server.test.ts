@@ -8,7 +8,10 @@ import type { AppConfig } from '../../src/config.js';
 const KEY = 'server-test-key';
 
 const config = (envOver: Partial<AppConfig['env']> = {}): AppConfig => ({
-  poll: { enabled: false, intervalSeconds: 600, pageSize: 50 },
+  poll: {
+    enabled: false, intervalSeconds: 600, pageSize: 50,
+    resolveDiscordRequirements: true, maxResolvesPerCycle: 10,
+  },
   entry: {
     delayMs: 700, dryRun: false, skipCaptcha: true, skipNftHolding: true,
     skipTokenGated: true, allowedBlockchains: [], excludeKeywords: [], minWinnerCount: 0,

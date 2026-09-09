@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
-import { listActiveRaffles, register } from '../../src/api/raffles.js';
+import {
+  getRaffleWithRequirements, listActiveRaffles, register,
+} from '../../src/api/raffles.js';
 import type { AlphabotClient } from '../../src/api/client.js';
 
 function fakeClient(over: Record<string, unknown>): AlphabotClient {
@@ -33,6 +35,30 @@ describe('listActiveRaffles', () => {
   it('returns an empty array when the API returns no data', async () => {
     const client = fakeClient({ get: vi.fn(async () => undefined) });
     await expect(listActiveRaffles(client)).resolves.toEqual([]);
+  });
+});
+
+describe('getRaffleWithRequirements', () => {
+  it('asks for the requirements and unwraps the raffle', async () => {
+    const get = vi.fn(async () => ({
+      raffle: { slug: 'cool', discordServerRoles: [{ id: 'guild-a' }] },
+    }));
+
+    const raffle = await getRaffleWithRequirements(fakeClient({ get }), 'cool');
+
+    expect(get).toHaveBeenCalledWith('raffles/cool', { requirements: 'true' });
+    expect(raffle?.discordServerRoles).toEqual([{ id: 'guild-a' }]);
+  });
+
+  it('url-encodes the slug', async () => {
+    const get = vi.fn(async () => ({ raffle: {} }));
+    await getRaffleWithRequirements(fakeClient({ get }), 'a/b c');
+    expect(get).toHaveBeenCalledWith('raffles/a%2Fb%20c', { requirements: 'true' });
+  });
+
+  it('returns undefined when the api sends no raffle', async () => {
+    const get = vi.fn(async () => undefined);
+    await expect(getRaffleWithRequirements(fakeClient({ get }), 'gone')).resolves.toBeUndefined();
   });
 });
 

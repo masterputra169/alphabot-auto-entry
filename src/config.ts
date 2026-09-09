@@ -11,6 +11,8 @@ const fileSchema = z.object({
       `poll.intervalSeconds must be >= ${MIN_POLL_SECONDS} to stay inside the 30 GET/hour limit`,
     ),
     pageSize: z.number().int().min(1).max(50),
+    resolveDiscordRequirements: z.boolean(),
+    maxResolvesPerCycle: z.number().int().min(0).max(24),
   }),
   entry: z.object({
     delayMs: z.number().int().min(100),
