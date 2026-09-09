@@ -85,12 +85,17 @@ way. Alphabot reports these per category, and only a category it explicitly mark
 `blockingServers` goes one step further and names them, ranked by how much each one unlocks:
 
 ```json
-[{ "id": "1508955452770222420", "label": "ZeroLabs", "raffles": 5 },
- { "id": "1060897902681133097", "label": "NFT GEEKS", "raffles": 3 }]
+[{ "label": "Surge Alpha", "raffles": 5, "roles": ["Verified"],
+   "invite": "https://discord.gg/..." },
+ { "label": "Lumex", "raffles": 1, "roles": [], "invite": null }]
 ```
 
-Join the server at the top and the bot enters those raffles by itself on the next retry pass -
-no restart, nothing to click. `blockingServersPending` says how many blocked raffles have not
+`roles` is what tells you how much work each one is. An empty list means plain membership is
+enough. A named role means the server wants you verified first, which is a separate step inside
+that server - Alphabot checks the role, not the join.
+
+Deal with the server at the top and the bot enters those raffles by itself on the next retry
+pass - no restart, nothing to click. `blockingServersPending` says how many blocked raffles have not
 been looked up yet; they are worked through within the hourly GET budget.
 
 ## Tuning

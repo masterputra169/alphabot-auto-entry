@@ -42,7 +42,7 @@ function start(over: Partial<ServerDeps> = {}) {
     store: { size: 3, enteredCount: 2, blockedByReason: () => ({ opportunity_ended: 1 }),
       blockedByTask: () => ({ discord: 4 }) },
     client: { budgetRemaining: 27 },
-    blockers: { ranked: [{ id: 'g1', label: 'ZeroLabs', raffles: 5 }], pending: 2 },
+    blockers: { ranked: [{ id: 'g1', label: 'ZeroLabs', raffles: 5, invite: null, roles: [] }], pending: 2 },
     startedAt: Date.now(),
     ...over,
   } as ServerDeps);
@@ -75,7 +75,9 @@ describe('server', () => {
     expect(body.entered).toBe(2);
     expect(body.blockedBy).toEqual({ opportunity_ended: 1 });
     expect(body.blockedByTask).toEqual({ discord: 4 });
-    expect(body.blockingServers).toEqual([{ id: 'g1', label: 'ZeroLabs', raffles: 5 }]);
+    expect(body.blockingServers).toEqual([
+      { id: 'g1', label: 'ZeroLabs', raffles: 5, invite: null, roles: [] },
+    ]);
     expect(body.blockingServersPending).toBe(2);
     expect(body.getBudgetRemaining).toBe(27);
     expect(body.discordConnected).toBe(true);

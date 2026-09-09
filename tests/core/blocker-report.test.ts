@@ -12,7 +12,10 @@ const config = (over: Partial<AppConfig['poll']> = {}): AppConfig => ({
 
 interface Options {
   blocked?: string[];
-  requirements?: Record<string, { id: string; label?: string; exclude?: boolean }[]>;
+  requirements?: Record<string, {
+    id: string; label?: string; exclude?: boolean;
+    inviteLink?: string; roles?: { name?: string }[];
+  }[]>;
   budget?: number;
   poll?: Partial<AppConfig['poll']>;
   getImpl?: ReturnType<typeof vi.fn>;
@@ -51,8 +54,8 @@ describe('BlockerReport', () => {
     await report.refresh();
 
     expect(report.ranked).toEqual([
-      { id: 'g1', label: 'ZeroLabs', raffles: 2 },
-      { id: 'g2', label: 'Perrys', raffles: 1 },
+      { id: 'g1', label: 'ZeroLabs', raffles: 2, invite: null, roles: [] },
+      { id: 'g2', label: 'Perrys', raffles: 1, invite: null, roles: [] },
     ]);
   });
 
@@ -71,13 +74,59 @@ describe('BlockerReport', () => {
       requirements: { a: [{ id: 'g1', label: 'Wanted' }, { id: 'g2', exclude: true }] },
     });
     await report.refresh();
-    expect(report.ranked).toEqual([{ id: 'g1', label: 'Wanted', raffles: 1 }]);
+    expect(report.ranked).toEqual([
+      { id: 'g1', label: 'Wanted', raffles: 1, invite: null, roles: [] },
+    ]);
   });
 
   it('falls back to the id when a server has no label', async () => {
     const { report } = harness({ blocked: ['a'], requirements: { a: [{ id: 'g1' }] } });
     await report.refresh();
     expect(report.ranked[0]?.label).toBe('g1');
+  });
+
+  it('reports the role a server asks for, and its invite', async () => {
+    const { report } = harness({
+      blocked: ['a'],
+      requirements: {
+        a: [{
+          id: 'g1', label: 'Surge Alpha',
+          inviteLink: 'https://discord.gg/surge',
+          roles: [{ name: 'Verified' }],
+        }],
+      },
+    });
+
+    await report.refresh();
+
+    expect(report.ranked[0]).toEqual({
+      id: 'g1', label: 'Surge Alpha', raffles: 1,
+      invite: 'https://discord.gg/surge', roles: ['Verified'],
+    });
+  });
+
+  it('marks a server as membership-only when no role is named', async () => {
+    const { report } = harness({
+      blocked: ['a'], requirements: { a: [{ id: 'g1', label: 'Open', roles: [] }] },
+    });
+    await report.refresh();
+    expect(report.ranked[0]?.roles).toEqual([]);
+  });
+
+  it('merges the distinct roles different raffles ask for in one server', async () => {
+    const { report } = harness({
+      blocked: ['a', 'b', 'c'],
+      requirements: {
+        a: [{ id: 'g1', label: 'S', roles: [{ name: 'Verified' }] }],
+        b: [{ id: 'g1', label: 'S', roles: [{ name: 'Verified' }, { name: 'OG' }] }],
+        c: [{ id: 'g1', label: 'S', roles: [] }],
+      },
+    });
+
+    await report.refresh();
+
+    expect(report.ranked[0]?.raffles).toBe(3);
+    expect(report.ranked[0]?.roles).toEqual(['Verified', 'OG']);
   });
 
   it('looks up each raffle only once across cycles', async () => {

@@ -11,6 +11,21 @@ export interface BlockingServer {
   id: string;
   label: string;
   raffles: number;
+  /** Invite Alphabot published for the server, when it gave one. */
+  invite: string | null;
+  /**
+   * Roles the raffles ask for inside that server. Empty means plain
+   * membership is enough; a named role usually means going through the
+   * server's verification first, which is a different amount of work.
+   */
+  roles: string[];
+}
+
+interface ServerRequirement {
+  id: string;
+  label: string;
+  invite: string | null;
+  roles: string[];
 }
 
 export interface BlockerReportDeps {
@@ -30,7 +45,7 @@ export interface BlockerReportDeps {
  */
 export class BlockerReport {
   /** slug -> the servers that raffle requires. */
-  private readonly servers = new Map<string, { id: string; label: string }[]>();
+  private readonly servers = new Map<string, ServerRequirement[]>();
   /** Slugs already looked up, so budget is never spent twice on one raffle. */
   private readonly examined = new Set<string>();
   private timer: NodeJS.Timeout | null = null;
@@ -44,8 +59,15 @@ export class BlockerReport {
     for (const slug of this.deps.store.blockedSlugs('discord')) {
       for (const server of this.servers.get(slug) ?? []) {
         const seen = counts.get(server.id);
-        if (seen) seen.raffles += 1;
-        else counts.set(server.id, { id: server.id, label: server.label, raffles: 1 });
+        if (!seen) {
+          counts.set(server.id, { ...server, raffles: 1, roles: [...server.roles] });
+          continue;
+        }
+        seen.raffles += 1;
+        seen.invite ??= server.invite;
+        for (const role of server.roles) {
+          if (!seen.roles.includes(role)) seen.roles.push(role);
+        }
       }
     }
 
@@ -73,9 +95,16 @@ export class BlockerReport {
         this.examined.add(slug);
         resolved += 1;
 
-        const servers = (raffle?.discordServerRoles ?? [])
+        const servers: ServerRequirement[] = (raffle?.discordServerRoles ?? [])
           .filter((s) => s.exclude !== true)
-          .map((s) => ({ id: s.id, label: s.label ?? s.id }));
+          .map((s) => ({
+            id: s.id,
+            label: s.label ?? s.id,
+            invite: s.inviteLink ?? null,
+            roles: (s.roles ?? [])
+              .map((r) => r.name)
+              .filter((name): name is string => Boolean(name)),
+          }));
 
         if (servers.length > 0) this.servers.set(slug, servers);
       } catch (error) {
@@ -98,7 +127,10 @@ export class BlockerReport {
       const top = this.ranked[0];
       log.info(`Blocker report looked up ${resolved} raffles`, {
         stillPending: this.pending,
-        topServer: top ? `${top.label} unlocks ${top.raffles}` : null,
+        topServer: top
+          ? `${top.label} unlocks ${top.raffles}`
+            + (top.roles.length > 0 ? ` (needs role: ${top.roles.join(', ')})` : ' (membership only)')
+          : null,
       });
     }
   }
