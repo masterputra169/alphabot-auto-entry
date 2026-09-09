@@ -6,6 +6,7 @@ import {
 } from 'node:http';
 import type { AlphabotClient } from '../api/client.js';
 import type { AppConfig } from '../config.js';
+import type { BlockerReport } from '../core/blocker-report.js';
 import type { EntryQueue } from '../core/entry-queue.js';
 import type { EntryStore } from '../core/store.js';
 import {
@@ -24,6 +25,7 @@ export interface ServerDeps {
   guilds: Pick<GuildDirectory, 'connected' | 'lastRefreshedAt' | 'saveTokens'>;
   store: Pick<EntryStore, 'size' | 'enteredCount' | 'blockedByReason' | 'blockedByTask'>;
   client: Pick<AlphabotClient, 'budgetRemaining'>;
+  blockers?: Pick<BlockerReport, 'ranked' | 'pending'>;
   startedAt: number;
   fetchImpl?: typeof fetch;
 }
@@ -79,6 +81,8 @@ export function createServer(deps: ServerDeps): Server {
         entered: deps.store.enteredCount,
         blockedBy: deps.store.blockedByReason(),
         blockedByTask: deps.store.blockedByTask(),
+        blockingServers: deps.blockers?.ranked ?? [],
+        blockingServersPending: deps.blockers?.pending ?? 0,
         getBudgetRemaining: deps.client.budgetRemaining,
         discordConnected: deps.guilds.connected,
         discordRefreshedAt: deps.guilds.lastRefreshedAt,

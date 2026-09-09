@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { AlphabotClient } from './api/client.js';
 import { loadConfig, type AppConfig } from './config.js';
+import { BlockerReport } from './core/blocker-report.js';
 import { EntryQueue } from './core/entry-queue.js';
 import { Poller } from './core/poller.js';
 import { EntryStore } from './core/store.js';
@@ -65,6 +66,7 @@ async function main(): Promise<void> {
   });
 
   poller = new Poller({ config, client, queue, store });
+  const blockers = new BlockerReport({ config, client, store });
 
   const server = createServer({
     config,
@@ -73,6 +75,7 @@ async function main(): Promise<void> {
     guilds,
     store,
     client,
+    blockers,
     startedAt: Date.now(),
   });
 
@@ -94,11 +97,13 @@ async function main(): Promise<void> {
   }
 
   poller.start();
+  blockers.start();
   void poller.runOnce();
 
   const shutdown = (signal: string) => {
     log.info(`Received ${signal}, shutting down`);
     poller?.stop();
+    blockers.stop();
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 5000).unref();
   };

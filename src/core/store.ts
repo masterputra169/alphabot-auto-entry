@@ -98,6 +98,16 @@ export class EntryStore {
     return counts;
   }
 
+  /** Slugs currently held back by a particular outstanding task. */
+  blockedSlugs(task: string, now: number = Date.now()): string[] {
+    const slugs: string[] = [];
+    for (const record of this.records.values()) {
+      if (record.success || !this.isBlocked(record.slug, now)) continue;
+      if ((record.blockers ?? []).includes(task)) slugs.push(record.slug);
+    }
+    return slugs;
+  }
+
   /** True while this raffle must not be attempted again. */
   isBlocked(slug: string, now: number = Date.now()): boolean {
     const record = this.records.get(slug);

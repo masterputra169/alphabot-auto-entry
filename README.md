@@ -78,9 +78,20 @@ node dist/index.js --dry-run   # rehearse without registering anything
 raffles currently held back, grouped by Alphabot's own rejection reason), `blockedByTask`, and
 whether Discord is connected.
 
-`blockedByTask` is the useful one: it counts how many raffles each outstanding task is holding up,
-so `{"discord": 47, "twitter": 12}` means joining the right Discord servers unlocks the most.
-Alphabot reports these per category, and only a category it explicitly marks failed is counted.
+`blockedByTask` counts how many raffles each outstanding task is holding up, so
+`{"discord": 47, "twitter": 12}` means Discord requirements are the biggest thing standing in the
+way. Alphabot reports these per category, and only a category it explicitly marks failed counts.
+
+`blockingServers` goes one step further and names them, ranked by how much each one unlocks:
+
+```json
+[{ "id": "1508955452770222420", "label": "ZeroLabs", "raffles": 5 },
+ { "id": "1060897902681133097", "label": "NFT GEEKS", "raffles": 3 }]
+```
+
+Join the server at the top and the bot enters those raffles by itself on the next retry pass -
+no restart, nothing to click. `blockingServersPending` says how many blocked raffles have not
+been looked up yet; they are worked through within the hourly GET budget.
 
 ## Tuning
 

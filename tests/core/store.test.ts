@@ -140,6 +140,17 @@ describe('EntryStore', () => {
     expect(store.blockedByTask(5001)).toEqual({});
   });
 
+  it('lists the slugs a given task is holding up', async () => {
+    const store = await EntryStore.open(tempDir());
+    const soon = Date.now() + 60_000;
+    await store.record({ ...rec('a'), success: false, retryAfter: soon, blockers: ['discord'] });
+    await store.record({ ...rec('b'), success: false, retryAfter: soon, blockers: ['twitter'] });
+    await store.record({ ...rec('c'), success: true, retryAfter: null, blockers: ['discord'] });
+
+    expect(store.blockedSlugs('discord')).toEqual(['a']);
+    expect(store.blockedSlugs('twitter')).toEqual(['b']);
+  });
+
   it('keeps the in-memory record when the disk write fails', async () => {
     const store = await EntryStore.open(tempDir());
     const spy = vi
