@@ -1,0 +1,15 @@
+{
+  "poll": { "enabled": true, "intervalSeconds": 600, "pageSize": 50 },
+  "entry": {
+    "delayMs": 700,
+    "dryRun": false,
+    "skipCaptcha": true,
+    "skipNftHolding": true,
+    "skipTokenGated": true,
+    "allowedBlockchains": [],
+    "excludeKeywords": [],
+    "minWinnerCount": 0
+  },
+  "discord": { "requireGuildWhitelist": true, "guildIds": [], "refreshHours": 6 },
+  "submission": { "mintAddress": null, "discordId": null, "twitterId": null, "telegramId": null }
+}
