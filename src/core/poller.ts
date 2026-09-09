@@ -20,8 +20,14 @@ export interface PollerDeps {
 export class Poller {
   private timer: NodeJS.Timeout | null = null;
   private halted = false;
-  /** Slugs already resolved this process, so budget is never spent twice on one raffle. */
-  private readonly resolved = new Set<string>();
+  /** Slugs a GET has already been spent on, so budget is never spent twice. */
+  private readonly attempted = new Set<string>();
+  /**
+   * Requirements fetched earlier, re-submitted on later cycles so the queue
+   * always sees the enriched raffle rather than the bare list entry.
+   * Pruned to whatever is still active at the end of each scan.
+   */
+  private readonly enriched = new Map<string, RaffleWithRequirements>();
 
   constructor(private readonly deps: PollerDeps) {}
 
@@ -48,15 +54,18 @@ export class Poller {
     let unresolved = 0;
 
     for (const raffle of raffles) {
-      let candidate: RaffleWithRequirements = raffle;
+      let candidate: RaffleWithRequirements = this.enriched.get(raffle.slug) ?? raffle;
 
-      if (this.needsResolving(raffle)) {
+      if (candidate === raffle && this.needsResolving(raffle)) {
         if (this.canResolve(resolvedThisCycle)) {
           const full = await this.resolve(raffle.slug);
-          if (full) candidate = full;
-          // `resolved` gains the slug only when a request actually went out, so
-          // it distinguishes budget spent from budget denied.
-          if (this.resolved.has(raffle.slug)) resolvedThisCycle += 1;
+          if (full) {
+            candidate = full;
+            this.enriched.set(raffle.slug, full);
+          }
+          // `attempted` gains the slug only when a request actually went out,
+          // so it distinguishes budget spent from budget denied.
+          if (this.attempted.has(raffle.slug)) resolvedThisCycle += 1;
           else unresolved += 1;
         } else {
           unresolved += 1;
@@ -66,13 +75,24 @@ export class Poller {
       queue.submit(candidate, 'poller');
     }
 
+    this.pruneCache(raffles);
+
     log.info(`Poller found ${raffles.length} unregistered active raffles`, {
       resolved: resolvedThisCycle,
       deferred: unresolved,
+      cached: this.enriched.size,
       getBudgetRemaining: client.budgetRemaining,
     });
 
     return raffles.length;
+  }
+
+  /** Drops requirements for raffles that are no longer active. */
+  private pruneCache(raffles: RaffleForList[]): void {
+    const active = new Set(raffles.map((r) => r.slug));
+    for (const slug of this.enriched.keys()) {
+      if (!active.has(slug)) this.enriched.delete(slug);
+    }
   }
 
   /**
@@ -87,7 +107,7 @@ export class Poller {
     const req = raffle.reqString ?? '';
     if (!req.includes('d') && !req.includes('r')) return false;
 
-    if (this.resolved.has(raffle.slug)) return false;
+    if (this.attempted.has(raffle.slug)) return false;
     return !store.has(raffle.slug);
   }
 
@@ -101,7 +121,7 @@ export class Poller {
       const full = await getRaffleWithRequirements(this.deps.client, slug);
       // Mark it done either way: a raffle that resolves to nothing useful must
       // not be retried every cycle, or it would burn the budget forever.
-      this.resolved.add(slug);
+      this.attempted.add(slug);
       return full;
     } catch (error) {
       if (error instanceof AuthError) throw error;
@@ -109,7 +129,7 @@ export class Poller {
       log.warn(`Could not resolve requirements for ${slug}`, {
         message: (error as Error).message,
       });
-      this.resolved.add(slug);
+      this.attempted.add(slug);
       return undefined;
     }
   }

@@ -20,6 +20,9 @@ Requires an active Alphabot subscription — the API is subscription-gated.
   violate Discord's Terms of Service.
 - **Nothing is entered twice.** Every attempt is recorded, and the record survives redeploys when
   a volume is mounted.
+- **Verdicts are revisited, not frozen.** A raffle skipped because Discord was not yet connected,
+  or because its requirements had not been fetched, is judged again on the next poll cycle. No
+  restart needed.
 
 ```
 Alphabot --raffle:active--> POST /alphabot --> verify HMAC --> 200 immediately

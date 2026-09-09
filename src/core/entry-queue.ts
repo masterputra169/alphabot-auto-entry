@@ -4,7 +4,7 @@ import type { RaffleWithRequirements } from '../api/types.js';
 import type { AppConfig } from '../config.js';
 import { log } from '../logger.js';
 import type { DiscordNotifier } from '../notify/discord.js';
-import { evaluate } from './filter.js';
+import { evaluate, type SkipReason } from './filter.js';
 import type { EntryStore } from './store.js';
 
 export type EntrySource = 'webhook' | 'poller';
@@ -32,7 +32,16 @@ const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
  */
 export class EntryQueue {
   private readonly pending: QueueItem[] = [];
-  private readonly seen = new Set<string>();
+  /**
+   * Guards against processing one slug twice *concurrently* — nothing more.
+   * Protection against entering a raffle twice comes from the store, which is
+   * durable. Keeping slugs here permanently would mean a raffle judged before
+   * the Discord guild list arrived, or before the poller resolved its
+   * requirements, could never be reconsidered.
+   */
+  private readonly inFlight = new Set<string>();
+  /** Last skip reason per slug, so a repeated verdict is not re-reported. */
+  private readonly lastSkip = new Map<string, SkipReason>();
   private running: Promise<void> | null = null;
   private authFailed = false;
 
@@ -43,8 +52,8 @@ export class EntryQueue {
   }
 
   submit(raffle: RaffleWithRequirements, source: EntrySource): void {
-    if (this.seen.has(raffle.slug)) return;
-    this.seen.add(raffle.slug);
+    if (this.inFlight.has(raffle.slug)) return;
+    this.inFlight.add(raffle.slug);
     this.pending.push({ raffle, source });
     this.running ??= this.run().finally(() => {
       this.running = null;
@@ -71,7 +80,15 @@ export class EntryQueue {
     }
   }
 
-  private async process({ raffle, source }: QueueItem): Promise<void> {
+  private async process(item: QueueItem): Promise<void> {
+    try {
+      await this.decideAndEnter(item);
+    } finally {
+      this.inFlight.delete(item.raffle.slug);
+    }
+  }
+
+  private async decideAndEnter({ raffle, source }: QueueItem): Promise<void> {
     const { config, store, notifier, guilds, client } = this.deps;
 
     if (this.authFailed) return;
@@ -86,9 +103,16 @@ export class EntryQueue {
     });
 
     if (!verdict.eligible) {
-      await notifier.skipped(raffle, verdict.reason);
+      // The same raffle is re-judged every poll cycle now, so only report a
+      // verdict that actually changed.
+      if (this.lastSkip.get(raffle.slug) !== verdict.reason) {
+        this.lastSkip.set(raffle.slug, verdict.reason);
+        await notifier.skipped(raffle, verdict.reason);
+      }
       return;
     }
+
+    this.lastSkip.delete(raffle.slug);
 
     const input: RegisterInput = { slug: raffle.slug };
     const { mintAddress, discordId, twitterId, telegramId } = config.submission;

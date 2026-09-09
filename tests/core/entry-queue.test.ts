@@ -185,6 +185,80 @@ describe('EntryQueue', () => {
     expect(post).toHaveBeenCalledOnce();
   });
 
+  it('re-judges a raffle submitted again after processing', async () => {
+    const { queue, post } = harness();
+
+    queue.submit(raffle({ connectCaptcha: true }), 'poller');
+    await queue.idle();
+    expect(post).not.toHaveBeenCalled();
+
+    // Same slug, now carrying data that makes it eligible.
+    queue.submit(raffle(), 'poller');
+    await queue.idle();
+    expect(post).toHaveBeenCalledOnce();
+  });
+
+  it('reports a skip once, then again only when the reason changes', async () => {
+    const { queue, notifier } = harness();
+
+    queue.submit(raffle({ connectCaptcha: true }), 'webhook');
+    await queue.idle();
+    queue.submit(raffle({ connectCaptcha: true }), 'poller');
+    await queue.idle();
+    expect(notifier.skipped).toHaveBeenCalledOnce();
+
+    queue.submit(raffle({ status: 'ended' }), 'poller');
+    await queue.idle();
+    expect(notifier.skipped).toHaveBeenCalledTimes(2);
+  });
+
+  it('re-enters a discord raffle once the guild becomes known', async () => {
+    let guildIds = new Set<string>();
+    const { queue, post, notifier } = harness({
+      guilds: { getGuildIds: async () => guildIds },
+    });
+    const gated = () => raffle({ discordServerRoles: [{ id: 'guild-a' }] });
+
+    queue.submit(gated(), 'poller');
+    await queue.idle();
+    expect(post).not.toHaveBeenCalled();
+    expect(notifier.skipped).toHaveBeenCalledWith(expect.anything(), 'discord_guild_not_joined');
+
+    // OAuth completes; the whitelist fills in without a restart.
+    guildIds = new Set(['guild-a']);
+    queue.submit(gated(), 'poller');
+    await queue.idle();
+    expect(post).toHaveBeenCalledOnce();
+  });
+
+  it('releases the in-flight guard even when entry throws', async () => {
+    const post = vi.fn().mockRejectedValue(new Error('boom'));
+    // A store that forgets, so the retry is not blocked by `already_entered`
+    // and the test isolates the in-flight guard itself.
+    const store = { has: () => false, record: vi.fn(async () => {}) };
+    const { queue } = harness({ client: { post, get: vi.fn() }, store });
+
+    queue.submit(raffle(), 'poller');
+    await queue.idle();
+    queue.submit(raffle(), 'poller');
+    await queue.idle();
+
+    expect(post).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not retry an entry whose failure was recorded', async () => {
+    const post = vi.fn().mockRejectedValue(new Error('boom'));
+    const { queue } = harness({ client: { post, get: vi.fn() } });
+
+    queue.submit(raffle(), 'poller');
+    await queue.idle();
+    queue.submit(raffle(), 'poller');
+    await queue.idle();
+
+    // Recorded failures stay recorded: re-registering could double-enter.
+    expect(post).toHaveBeenCalledOnce();
+  });
+
   it('reports queue depth', () => {
     const { queue } = harness();
     queue.submit(raffle({ slug: 'a' }), 'webhook');

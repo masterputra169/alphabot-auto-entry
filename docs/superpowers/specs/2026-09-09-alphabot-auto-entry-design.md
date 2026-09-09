@@ -62,8 +62,9 @@ Over the polling API the same data costs a `GET /raffles/{slug}?requirements=tru
 from a budget of 30 per hour. The list endpoint only exposes `reqString` (which requirement
 *types* exist) and `discordUrl` (the project's Discord, not necessarily the *required* server).
 
-Therefore: **webhooks are the primary path, polling is only a safety net.** Precise Discord guild
-matching is possible on the webhook path and not economically possible on the polling path.
+Therefore: **webhooks are the primary path, polling is the safety net.** The webhook path gets
+precise Discord guild matching for free. The polling path has to buy it one request at a time,
+which is affordable only within a strict budget — see the resolution rules in section 5.
 
 ## 3. Architecture
 
@@ -71,7 +72,7 @@ matching is possible on the webhook path and not economically possible on the po
 Alphabot --raffle:active--> POST /alphabot --> verify HMAC --> 200 (immediately)
                                                    |
                                                    v
-                                    entry queue (serial, 700ms gap, dedupe by slug)
+                                    entry queue (serial, 700ms gap, in-flight dedupe)
                                                    |
                            +-----------------------+
                            v                       v
@@ -79,7 +80,8 @@ Alphabot --raffle:active--> POST /alphabot --> verify HMAC --> 200 (immediately)
                            ^
              guild whitelist (Discord OAuth2, refreshed every 6h)
 
-poller (every 10 min) --> GET /raffles?status=active&filter=unregistered --> entry queue
+poller (every 10 min) --> GET /raffles?status=active&filter=unregistered
+                            +-> GET /raffles/{slug}?requirements=true (budgeted) --> entry queue
 Alphabot --raffle:won--> POST /alphabot --> Discord notify
 ```
 
@@ -103,15 +105,15 @@ Each module has one job and a narrow interface, so it can be tested alone.
 | `src/config.ts` | Load `config.json` + env, validate with zod, expose a frozen typed config |
 | `src/logger.ts` | Timestamped structured console output; redacts registered secrets |
 | `src/api/client.ts` | fetch wrapper: bearer auth, JSON, retry with backoff, GET token bucket, 429 handling |
-| `src/api/raffles.ts` | `listActiveRaffles()`, `register()` |
+| `src/api/raffles.ts` | `listActiveRaffles()`, `getRaffleWithRequirements()`, `register()` |
 | `src/api/types.ts` | Types transcribed from the OpenAPI schemas |
 | `src/webhook/verify.ts` | `verifyHash(body, apiKey)` using `crypto.timingSafeEqual` |
 | `src/webhook/server.ts` | `node:http` server and routing |
 | `src/webhook/handlers.ts` | Map an event name to an action; unknown events acknowledged and ignored |
 | `src/core/filter.ts` | **Pure.** `evaluate(raffle, ctx)` returns eligible or a skip reason |
 | `src/core/store.ts` | Durable record of attempted slugs; atomic write to `DATA_DIR/entered.json` |
-| `src/core/entry-queue.ts` | Serial queue, in-flight dedupe, pacing, orchestrates filter to register to store to notify |
-| `src/core/poller.ts` | Interval catch-up scan; feeds the queue |
+| `src/core/entry-queue.ts` | Serial queue, in-flight dedupe, pacing, skip-reason de-duplication, orchestrates filter to register to store to notify |
+| `src/core/poller.ts` | Interval catch-up scan; budgeted requirement resolution and its cache; feeds the queue |
 | `src/discord/oauth.ts` | Authorize URL, code exchange, token refresh |
 | `src/discord/guilds.ts` | Paginated `/users/@me/guilds` fetch, cache, guild-id set |
 | `src/discord/routes.ts` | `GET /discord/connect`, `GET /discord/callback` |
@@ -134,7 +136,10 @@ Evaluated in order; the first match wins and yields a machine-readable reason.
 1. `status !== 'active'` -> skip (`not_active`)
 2. `endDate` already past -> skip (`ended`)
 3. slug already in store -> skip (`already_entered`)
-4. `connectCaptcha` -> skip (`captcha_required`) — cannot and should not be automated
+4. `connectCaptcha` and `entry.skipCaptcha` -> skip (`captcha_required`). Default is `false`:
+   the API's `validation` object has no captcha field, so whether `POST /register` enforces the
+   requirement at all is unknown, and the bot lets Alphabot answer rather than guessing. Nothing
+   here reads or solves a CAPTCHA.
 5. `connectPassword` and no password configured -> skip (`password_required`)
 6. `requiredTokens` non-empty and `entry.skipTokenGated` -> skip (`token_gated`)
 7. `requiredEth > 0` and `entry.skipTokenGated` -> skip (`eth_balance_required`)
@@ -176,8 +181,26 @@ Because the list is sorted `ending` ascending, the most urgent raffles are resol
 token bucket remains the hard backstop: if it refuses, the raffle is submitted unresolved and the
 filter skips it, to be retried on a later cycle.
 
-The `resolved` set is in memory only. A restart re-resolves, which is bounded by the same guards —
-accepted rather than adding another persisted state file.
+Resolved requirements are cached in memory and re-submitted on later cycles, so a raffle is
+fetched once and then keeps its enriched form. The cache is pruned to whatever is still active at
+the end of each scan. Both the cache and the attempted set are memory-only; a restart re-resolves,
+which is bounded by the same guards — accepted rather than adding another persisted state file.
+
+### Re-evaluation
+
+The entry queue's dedupe set guards against processing one slug twice *concurrently*, and nothing
+more. Protection against entering a raffle twice comes from the store, which is durable and
+authoritative.
+
+This matters because a verdict is only as good as the information available when it was made. A
+raffle judged before OAuth2 filled the guild whitelist, or before the poller resolved its
+requirements, must be reconsidered once that information arrives — without a restart. Since the
+poller re-submits every active raffle each cycle, dropping the slug from the in-flight set after
+processing is all that is needed.
+
+The cost is that a permanently ineligible raffle is re-judged every cycle. That is a pure function
+call with no API traffic, so the only real cost would be repeated log lines; the queue therefore
+remembers each slug's last skip reason and reports only a verdict that actually changed.
 
 ## 6. Configuration
 

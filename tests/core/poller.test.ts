@@ -172,6 +172,43 @@ describe('Poller discord requirement resolution', () => {
     expect(resolveCalls(get)).toHaveLength(1);
   });
 
+  it('re-submits the enriched raffle on later cycles, not the bare listing', async () => {
+    const { poller, submit, get } = harness({
+      list: [listed('gated', 'd')],
+      single: { gated: resolvedRaffle('gated', 'guild-a') },
+    });
+
+    await poller.runOnce();
+    await poller.runOnce();
+
+    expect(resolveCalls(get)).toHaveLength(1);
+    expect(submit).toHaveBeenCalledTimes(2);
+    for (const call of submit.mock.calls) {
+      expect(call[0]).toHaveProperty('discordServerRoles', [{ id: 'guild-a' }]);
+    }
+  });
+
+  it('forgets requirements once the raffle is no longer active', async () => {
+    const single = { gated: resolvedRaffle('gated', 'guild-a') };
+    const listRef: RaffleForList[] = [listed('gated', 'd')];
+    const get = vi.fn(async (path: string) => {
+      if (path === 'raffles') return { raffles: listRef };
+      const slug = decodeURIComponent(path.replace('raffles/', ''));
+      return { raffle: single[slug as keyof typeof single] };
+    });
+    const { poller } = harness({ getImpl: get });
+
+    await poller.runOnce();
+    listRef.length = 0;
+    await poller.runOnce();
+    listRef.push(listed('gated', 'd'));
+    await poller.runOnce();
+
+    // Cache was pruned while inactive, but the slug stays in `attempted`,
+    // so no second GET is spent on it.
+    expect(resolveCalls(get)).toHaveLength(1);
+  });
+
   it('honours maxResolvesPerCycle', async () => {
     const list = ['a', 'b', 'c', 'd', 'e'].map((s) => listed(s, 'd'));
     const single = Object.fromEntries(list.map((r) => [r.slug, resolvedRaffle(r.slug, 'g')]));
