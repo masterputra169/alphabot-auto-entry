@@ -90,9 +90,19 @@ way. Alphabot reports these per category, and only a category it explicitly mark
  { "label": "Lumex", "raffles": 1, "roles": [], "invite": null }]
 ```
 
-`roles` is what tells you how much work each one is. An empty list means plain membership is
-enough. A named role means the server wants you verified first, which is a separate step inside
-that server - Alphabot checks the role, not the join.
+`roles` tells you how much work each one is, cheapest first. An empty list means plain membership
+is enough. Otherwise the roles are **alternatives, not a checklist** - each carries an entry
+multiplier, so the lowest `val` is normally the basic role a server grants on verification and the
+higher ones are tiers that just award more entries:
+
+```json
+"roles": [{ "name": "Waiting Room", "val": 1 },
+          { "name": "VIP Surge",    "val": 5 },
+          { "name": "Surge Gods",   "val": 10 }]
+```
+
+Alphabot checks the role, not the join, so a server can be public and still block you until you
+pick up its basic role.
 
 Deal with the server at the top and the bot enters those raffles by itself on the next retry
 pass - no restart, nothing to click. `blockingServersPending` says how many blocked raffles have not

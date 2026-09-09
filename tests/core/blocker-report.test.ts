@@ -14,7 +14,7 @@ interface Options {
   blocked?: string[];
   requirements?: Record<string, {
     id: string; label?: string; exclude?: boolean;
-    inviteLink?: string; roles?: { name?: string }[];
+    inviteLink?: string; roles?: { name?: string; val?: number }[];
   }[]>;
   budget?: number;
   poll?: Partial<AppConfig['poll']>;
@@ -101,7 +101,7 @@ describe('BlockerReport', () => {
 
     expect(report.ranked[0]).toEqual({
       id: 'g1', label: 'Surge Alpha', raffles: 1,
-      invite: 'https://discord.gg/surge', roles: ['Verified'],
+      invite: 'https://discord.gg/surge', roles: [{ name: 'Verified', val: null }],
     });
   });
 
@@ -117,8 +117,10 @@ describe('BlockerReport', () => {
     const { report } = harness({
       blocked: ['a', 'b', 'c'],
       requirements: {
-        a: [{ id: 'g1', label: 'S', roles: [{ name: 'Verified' }] }],
-        b: [{ id: 'g1', label: 'S', roles: [{ name: 'Verified' }, { name: 'OG' }] }],
+        a: [{ id: 'g1', label: 'S', roles: [{ name: 'Verified', val: 1 }] }],
+        b: [{ id: 'g1', label: 'S', roles: [
+          { name: 'Verified', val: 1 }, { name: 'OG', val: 5 },
+        ] }],
         c: [{ id: 'g1', label: 'S', roles: [] }],
       },
     });
@@ -126,7 +128,44 @@ describe('BlockerReport', () => {
     await report.refresh();
 
     expect(report.ranked[0]?.raffles).toBe(3);
-    expect(report.ranked[0]?.roles).toEqual(['Verified', 'OG']);
+    expect(report.ranked[0]?.roles.map((r) => r.name)).toEqual(['Verified', 'OG']);
+  });
+
+  it('lists roles cheapest first, so the basic one is obvious', async () => {
+    const { report } = harness({
+      blocked: ['a'],
+      requirements: {
+        a: [{
+          id: 'g1', label: 'Surge Alpha',
+          roles: [
+            { name: 'Surge Gods', val: 10 },
+            { name: 'Waiting Room', val: 1 },
+            { name: 'VIP Surge', val: 5 },
+          ],
+        }],
+      },
+    });
+
+    await report.refresh();
+
+    // Alphabot treats these as alternatives with different entry weights,
+    // so the lowest multiplier is the cheapest way in.
+    expect(report.ranked[0]?.roles).toEqual([
+      { name: 'Waiting Room', val: 1 },
+      { name: 'VIP Surge', val: 5 },
+      { name: 'Surge Gods', val: 10 },
+    ]);
+  });
+
+  it('sorts a role with no multiplier last', async () => {
+    const { report } = harness({
+      blocked: ['a'],
+      requirements: {
+        a: [{ id: 'g1', roles: [{ name: 'Unknown' }, { name: 'Basic', val: 2 }] }],
+      },
+    });
+    await report.refresh();
+    expect(report.ranked[0]?.roles.map((r) => r.name)).toEqual(['Basic', 'Unknown']);
   });
 
   it('looks up each raffle only once across cycles', async () => {

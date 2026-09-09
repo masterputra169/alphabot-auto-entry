@@ -14,18 +14,32 @@ export interface BlockingServer {
   /** Invite Alphabot published for the server, when it gave one. */
   invite: string | null;
   /**
-   * Roles the raffles ask for inside that server. Empty means plain
-   * membership is enough; a named role usually means going through the
-   * server's verification first, which is a different amount of work.
+   * Roles the raffles recognise inside that server, cheapest first.
+   *
+   * Empty means plain membership is enough. Otherwise these are alternatives,
+   * not a checklist: each carries an entry multiplier, so the lowest `val` is
+   * normally the basic role a server hands out on verification, and the
+   * higher ones are tiers that simply award more entries.
    */
-  roles: string[];
+  roles: BlockingRole[];
+}
+
+export interface BlockingRole {
+  name: string;
+  /** Entry multiplier Alphabot attaches to the role, when it gives one. */
+  val: number | null;
 }
 
 interface ServerRequirement {
   id: string;
   label: string;
   invite: string | null;
-  roles: string[];
+  roles: BlockingRole[];
+}
+
+/** Cheapest first; a role with no multiplier sorts last. */
+function byCost(a: BlockingRole, b: BlockingRole): number {
+  return (a.val ?? Number.MAX_SAFE_INTEGER) - (b.val ?? Number.MAX_SAFE_INTEGER);
 }
 
 export interface BlockerReportDeps {
@@ -66,8 +80,9 @@ export class BlockerReport {
         seen.raffles += 1;
         seen.invite ??= server.invite;
         for (const role of server.roles) {
-          if (!seen.roles.includes(role)) seen.roles.push(role);
+          if (!seen.roles.some((r) => r.name === role.name)) seen.roles.push(role);
         }
+        seen.roles.sort(byCost);
       }
     }
 
@@ -102,8 +117,9 @@ export class BlockerReport {
             label: s.label ?? s.id,
             invite: s.inviteLink ?? null,
             roles: (s.roles ?? [])
-              .map((r) => r.name)
-              .filter((name): name is string => Boolean(name)),
+              .filter((r): r is { name: string; val?: number } => Boolean(r.name))
+              .map((r) => ({ name: r.name, val: r.val ?? null }))
+              .sort(byCost),
           }));
 
         if (servers.length > 0) this.servers.set(slug, servers);
@@ -129,7 +145,9 @@ export class BlockerReport {
         stillPending: this.pending,
         topServer: top
           ? `${top.label} unlocks ${top.raffles}`
-            + (top.roles.length > 0 ? ` (needs role: ${top.roles.join(', ')})` : ' (membership only)')
+            + (top.roles.length > 0
+            ? ` (cheapest role: ${top.roles[0]?.name})`
+            : ' (membership only)')
           : null,
       });
     }
