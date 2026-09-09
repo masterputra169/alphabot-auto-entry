@@ -86,8 +86,12 @@ export class DiscordNotifier {
   }
 
   /** Skips are the common case; logging them keeps the channel readable. */
-  async skipped(raffle: RaffleForList, reason: SkipReason): Promise<void> {
-    log.debug(`Skipped ${raffle.slug}`, { reason, name: raffle.name });
+  async skipped(raffle: RaffleForList, reason: SkipReason, detail?: string): Promise<void> {
+    log.info(`Skipped ${raffle.slug}`, {
+      reason,
+      name: raffle.name,
+      ...(detail ? { missing: detail } : {}),
+    });
   }
 
   private async send(embed: Embed): Promise<void> {

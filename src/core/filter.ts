@@ -26,10 +26,17 @@ export interface FilterContext {
   now?: number;
 }
 
-export type FilterResult = { eligible: true } | { eligible: false; reason: SkipReason };
+export type FilterResult =
+  | { eligible: true }
+  | { eligible: false; reason: SkipReason; detail?: string };
 
 const skip = (reason: SkipReason): FilterResult => ({ eligible: false, reason });
 const PASS: FilterResult = { eligible: true };
+
+/** Human-readable server list, so a rejection says which Discord to join. */
+function describeServers(servers: { id: string; label?: string }[]): string {
+  return servers.map((s) => (s.label ? `${s.label} (${s.id})` : s.id)).join(', ');
+}
 
 /**
  * Decides whether the owner can plausibly satisfy a raffle's requirements.
@@ -61,8 +68,24 @@ export function evaluate(raffle: RaffleWithRequirements, ctx: FilterContext): Fi
     const servers = raffle.discordServerRoles ?? [];
     if (servers.length > 0) {
       const required = servers.filter((s) => s.exclude !== true);
-      const allKnown = required.every((s) => ctx.knownGuildIds.has(s.id));
-      if (!allKnown) return skip('discord_guild_not_joined');
+      const missing = required.filter((s) => !ctx.knownGuildIds.has(s.id));
+
+      // Alphabot lists gating servers and bonus-entry servers in the same
+      // array, with no flag telling them apart. Requiring all of them rejects
+      // raffles the owner actually qualifies for, so `any` is the default:
+      // membership in at least one listed server is enough to try.
+      const satisfied = required.length === 0
+        || (discord.guildMatchMode === 'all'
+          ? missing.length === 0
+          : missing.length < required.length);
+
+      if (!satisfied) {
+        return {
+          eligible: false,
+          reason: 'discord_guild_not_joined',
+          detail: describeServers(missing),
+        };
+      }
     } else if (!ctx.fromWebhook && (reqString.includes('d') || reqString.includes('r'))) {
       // The list endpoint does not expose which guild is required, and resolving it
       // would spend the scarce GET budget. Webhooks are the path for these raffles.

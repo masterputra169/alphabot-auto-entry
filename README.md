@@ -88,6 +88,7 @@ balance, or a Discord server you have not joined.
 | `entry.skipNftHolding` | Set `false` to attempt raffles requiring an NFT you may hold |
 | `entry.skipCaptcha` | Default `false`: attempt CAPTCHA-flagged raffles and let Alphabot decide |
 | `discord.requireGuildWhitelist` | Set `false` to attempt Discord-gated raffles regardless |
+| `discord.guildMatchMode` | `any` (default) enters if you are in at least one listed server; `all` demands every one |
 | `poll.intervalSeconds` | Minimum 120; the default 600 spends 6 of the 30 hourly GETs |
 | `poll.resolveDiscordRequirements` | Set `false` to stop the poller fetching requirements for Discord-gated raffles |
 | `poll.maxResolvesPerCycle` | How many of those fetches one cycle may make (default 10) |

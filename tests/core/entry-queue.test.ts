@@ -14,7 +14,10 @@ const config = (over: Partial<AppConfig['entry']> = {}): AppConfig => ({
     skipTokenGated: true, allowedBlockchains: [], excludeKeywords: [], minWinnerCount: 0,
     ...over,
   },
-  discord: { requireGuildWhitelist: true, guildIds: [], refreshHours: 6 },
+  discord: {
+    requireGuildWhitelist: true, guildMatchMode: 'any',
+    guildIds: [], refreshHours: 6,
+  },
   submission: { mintAddress: null, discordId: null, twitterId: null, telegramId: null },
   env: { rafflePassword: null } as AppConfig['env'],
 });
@@ -76,7 +79,7 @@ describe('EntryQueue', () => {
 
     expect(post).not.toHaveBeenCalled();
     expect(notifier.skipped).toHaveBeenCalledWith(
-      expect.anything(), 'discord_requirements_unknown',
+      expect.anything(), 'discord_requirements_unknown', undefined,
     );
   });
 
@@ -156,7 +159,9 @@ describe('EntryQueue', () => {
     await queue.idle();
 
     expect(post).not.toHaveBeenCalled();
-    expect(notifier.skipped).toHaveBeenCalledWith(expect.anything(), 'already_entered');
+    expect(notifier.skipped).toHaveBeenCalledWith(
+      expect.anything(), 'already_entered', undefined,
+    );
   });
 
   it('passes configured submission overrides to register', async () => {
@@ -222,7 +227,9 @@ describe('EntryQueue', () => {
     queue.submit(gated(), 'poller');
     await queue.idle();
     expect(post).not.toHaveBeenCalled();
-    expect(notifier.skipped).toHaveBeenCalledWith(expect.anything(), 'discord_guild_not_joined');
+    expect(notifier.skipped).toHaveBeenCalledWith(
+      expect.anything(), 'discord_guild_not_joined', 'guild-a',
+    );
 
     // OAuth completes; the whitelist fills in without a restart.
     guildIds = new Set(['guild-a']);

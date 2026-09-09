@@ -18,7 +18,10 @@ const config = (
     skipTokenGated: true, allowedBlockchains: [], excludeKeywords: [], minWinnerCount: 0,
     ...over,
   },
-  discord: { requireGuildWhitelist: true, guildIds: [], refreshHours: 6, ...discordOver },
+  discord: {
+    requireGuildWhitelist: true, guildMatchMode: 'any',
+    guildIds: [], refreshHours: 6, ...discordOver,
+  },
   submission: { mintAddress: null, discordId: null, twitterId: null, telegramId: null },
   env: {} as AppConfig['env'],
 });
@@ -122,9 +125,45 @@ describe('evaluate', () => {
     expect(evaluate(r, ctx()).eligible).toBe(true);
   });
 
-  it('requires every non-exclude guild to be known', () => {
+  it('accepts a raffle when at least one listed guild is known (default `any`)', () => {
     const r = raffle({ discordServerRoles: [{ id: 'guild-a' }, { id: 'guild-b' }] });
+    expect(evaluate(r, ctx()).eligible).toBe(true);
+  });
+
+  it('requires every non-exclude guild under `all`', () => {
+    const c = ctx({ config: config({}, { guildMatchMode: 'all' }) });
+    const r = raffle({ discordServerRoles: [{ id: 'guild-a' }, { id: 'guild-b' }] });
+    expect(reasonOf(evaluate(r, c))).toBe('discord_guild_not_joined');
+  });
+
+  it('rejects only when no listed guild is known', () => {
+    const r = raffle({ discordServerRoles: [{ id: 'guild-y' }, { id: 'guild-z' }] });
     expect(reasonOf(evaluate(r, ctx()))).toBe('discord_guild_not_joined');
+  });
+
+  it('accepts a raffle whose only entries are exclusions', () => {
+    const r = raffle({ discordServerRoles: [{ id: 'guild-z', exclude: true }] });
+    expect(evaluate(r, ctx()).eligible).toBe(true);
+  });
+
+  it('names the missing servers so the owner knows which to join', () => {
+    const r = raffle({
+      discordServerRoles: [
+        { id: 'guild-y', label: 'Snailies' },
+        { id: 'guild-z', label: 'Rowdies' },
+      ],
+    });
+    const result = evaluate(r, ctx());
+    expect(result.eligible).toBe(false);
+    if (!result.eligible) {
+      expect(result.detail).toBe('Snailies (guild-y), Rowdies (guild-z)');
+    }
+  });
+
+  it('falls back to the raw id when a server has no label', () => {
+    const r = raffle({ discordServerRoles: [{ id: 'guild-z' }] });
+    const result = evaluate(r, ctx());
+    if (!result.eligible) expect(result.detail).toBe('guild-z');
   });
 
   it('enters discord gated raffles when the whitelist is disabled', () => {

@@ -144,9 +144,16 @@ Evaluated in order; the first match wins and yields a machine-readable reason.
 6. `requiredTokens` non-empty and `entry.skipTokenGated` -> skip (`token_gated`)
 7. `requiredEth > 0` and `entry.skipTokenGated` -> skip (`eth_balance_required`)
 8. `reqString` contains `n` (NFT holding) and `entry.skipNftHolding` -> skip (`nft_holding_required`)
-9. `discordServerRoles` non-empty and `discord.requireGuildWhitelist`: every entry with
-   `exclude !== true` must have its `id` in the known guild set, otherwise -> skip
-   (`discord_guild_not_joined`)
+9. `discordServerRoles` non-empty and `discord.requireGuildWhitelist`: the entries with
+   `exclude !== true` are matched against the known guild set. `discord.guildMatchMode` decides
+   how strictly: `any` (default) needs at least one match, `all` needs every one. Otherwise ->
+   skip (`discord_guild_not_joined`), carrying a `detail` naming the missing servers.
+
+   Alphabot lists gating servers and bonus-entry servers in the same array — the `val` and
+   `stacking` fields on `roles` are entry multipliers — with no flag distinguishing them.
+   Requiring all of them was the original guess and it rejected every raffle in production
+   despite 63 joined servers, so `any` is the default. `all` remains available for an owner who
+   wants the stricter reading.
 10. `allowedBlockchains` non-empty and `blockchain` not in it -> skip (`blockchain_excluded`)
 11. `excludeKeywords` matches `name` (case-insensitive) -> skip (`keyword_excluded`)
 12. `winnerCount < minWinnerCount` -> skip (`too_few_winners`)

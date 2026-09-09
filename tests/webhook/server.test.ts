@@ -16,7 +16,10 @@ const config = (envOver: Partial<AppConfig['env']> = {}): AppConfig => ({
     delayMs: 700, dryRun: false, skipCaptcha: true, skipNftHolding: true,
     skipTokenGated: true, allowedBlockchains: [], excludeKeywords: [], minWinnerCount: 0,
   },
-  discord: { requireGuildWhitelist: true, guildIds: [], refreshHours: 6 },
+  discord: {
+    requireGuildWhitelist: true, guildMatchMode: 'any',
+    guildIds: [], refreshHours: 6,
+  },
   submission: { mintAddress: null, discordId: null, twitterId: null, telegramId: null },
   env: {
     alphabotApiKey: KEY, port: 0, dataDir: './data', publicBaseUrl: 'https://app.test',

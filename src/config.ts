@@ -26,6 +26,7 @@ const fileSchema = z.object({
   }),
   discord: z.object({
     requireGuildWhitelist: z.boolean(),
+    guildMatchMode: z.enum(['any', 'all']),
     guildIds: z.array(z.string()),
     refreshHours: z.number().min(0).max(168),
   }),

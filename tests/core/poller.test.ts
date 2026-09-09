@@ -12,7 +12,10 @@ const config = (
     enabled: true, intervalSeconds: 600, pageSize: 50,
     resolveDiscordRequirements: true, maxResolvesPerCycle: 10, ...poll,
   },
-  discord: { requireGuildWhitelist: true, guildIds: [], refreshHours: 6, ...discord },
+  discord: {
+    requireGuildWhitelist: true, guildMatchMode: 'any',
+    guildIds: [], refreshHours: 6, ...discord,
+  },
 } as AppConfig);
 
 interface HarnessOptions {

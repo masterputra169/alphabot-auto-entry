@@ -107,7 +107,7 @@ export class EntryQueue {
       // verdict that actually changed.
       if (this.lastSkip.get(raffle.slug) !== verdict.reason) {
         this.lastSkip.set(raffle.slug, verdict.reason);
-        await notifier.skipped(raffle, verdict.reason);
+        await notifier.skipped(raffle, verdict.reason, verdict.detail);
       }
       return;
     }

@@ -71,6 +71,14 @@ describe('DiscordNotifier', () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
+  it('logs the missing servers when a skip carries detail', async () => {
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const notifier = new DiscordNotifier(null);
+    await notifier.skipped(raffle, 'discord_guild_not_joined', 'Snailies (123)');
+    expect(spy.mock.calls[0]?.join(' ')).toContain('Snailies (123)');
+    spy.mockRestore();
+  });
+
   it('posts a win notification with the mint address', async () => {
     const fetchImpl = vi.fn(async () => ok());
     const notifier = new DiscordNotifier(URL_, fetchImpl as unknown as typeof fetch);
