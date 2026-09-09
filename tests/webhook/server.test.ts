@@ -15,6 +15,7 @@ const config = (envOver: Partial<AppConfig['env']> = {}): AppConfig => ({
   entry: {
     delayMs: 700, dryRun: false, skipCaptcha: true, skipNftHolding: true,
     skipTokenGated: true, allowedBlockchains: [], excludeKeywords: [], minWinnerCount: 0,
+    retryHours: 6,
   },
   discord: {
     requireGuildWhitelist: true, guildMatchMode: 'any',
@@ -38,7 +39,7 @@ function start(over: Partial<ServerDeps> = {}) {
     queue: { submit, depth: 0 },
     notifier: { won: vi.fn(async () => {}) } as never,
     guilds: { connected: true, lastRefreshedAt: 1, saveTokens } as never,
-    store: { size: 3 },
+    store: { size: 3, enteredCount: 2 },
     client: { budgetRemaining: 27 },
     startedAt: Date.now(),
     ...over,
@@ -68,7 +69,8 @@ describe('server', () => {
     expect(response.status).toBe(200);
     const body = await response.json();
     expect(body.ok).toBe(true);
-    expect(body.entered).toBe(3);
+    expect(body.attempted).toBe(3);
+    expect(body.entered).toBe(2);
     expect(body.getBudgetRemaining).toBe(27);
     expect(body.discordConnected).toBe(true);
   });

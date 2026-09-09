@@ -14,7 +14,8 @@
     "skipTokenGated": true,
     "allowedBlockchains": [],
     "excludeKeywords": [],
-    "minWinnerCount": 0
+    "minWinnerCount": 0,
+    "retryHours": 6
   },
   "discord": {
     "requireGuildWhitelist": false,

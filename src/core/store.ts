@@ -9,6 +9,15 @@ export interface EntryRecord {
   success: boolean;
   entries: number | null;
   reason: string | null;
+  /**
+   * When this raffle may be attempted again, or null for never.
+   *
+   * Alphabot rejecting an entry outright ("one or more tasks incomplete")
+   * means nothing was registered *and* the owner can still fix it, so those
+   * are worth retrying. A successful entry, or a failure whose outcome is
+   * unknown, is permanent — retrying either risks a double entry.
+   */
+  retryAfter?: number | null;
 }
 
 const FILE_NAME = 'entered.json';
@@ -46,8 +55,35 @@ export class EntryStore {
     return this.records.get(slug);
   }
 
+  /** Every raffle attempted, successful or not. */
   get size(): number {
     return this.records.size;
+  }
+
+  /** Raffles Alphabot actually accepted. */
+  get enteredCount(): number {
+    let count = 0;
+    for (const record of this.records.values()) {
+      if (record.success) count += 1;
+    }
+    return count;
+  }
+
+  /** True while this raffle must not be attempted again. */
+  isBlocked(slug: string, now: number = Date.now()): boolean {
+    const record = this.records.get(slug);
+    if (!record) return false;
+
+    if (record.retryAfter === undefined) {
+      // Written before retry tracking existed. A success stays permanent; a
+      // failure becomes eligible again, because records from that era were
+      // Alphabot declines that the owner can still act on. Without this,
+      // everything attempted before the upgrade would be written off forever.
+      return record.success;
+    }
+
+    if (record.retryAfter === null) return true;
+    return now < record.retryAfter;
   }
 
   async record(entry: EntryRecord): Promise<void> {

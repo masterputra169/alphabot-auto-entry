@@ -19,6 +19,7 @@ const VALID = {
   entry: {
     delayMs: 700, dryRun: false, skipCaptcha: true, skipNftHolding: true,
     skipTokenGated: true, allowedBlockchains: [], excludeKeywords: [], minWinnerCount: 0,
+    retryHours: 6,
   },
   discord: {
     requireGuildWhitelist: true, guildMatchMode: 'any',

@@ -52,6 +52,15 @@ export class DiscordNotifier {
     });
   }
 
+  /**
+   * Alphabot declined the entry for a reason the owner can act on. Common and
+   * expected, so it stays in the log rather than flooding the channel.
+   */
+  async rejected(raffle: RaffleForList, message: string): Promise<void> {
+    log.info(`Entry rejected for ${raffle.slug}`, { name: raffle.name, message });
+  }
+
+  /** Something went wrong that the owner could not have predicted. */
   async failed(raffle: RaffleForList, message: string): Promise<void> {
     await this.send({
       title: `Entry failed: ${raffle.name}`,

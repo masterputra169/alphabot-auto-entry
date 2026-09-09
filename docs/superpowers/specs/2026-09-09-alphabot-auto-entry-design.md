@@ -111,7 +111,7 @@ Each module has one job and a narrow interface, so it can be tested alone.
 | `src/webhook/server.ts` | `node:http` server and routing |
 | `src/webhook/handlers.ts` | Map an event name to an action; unknown events acknowledged and ignored |
 | `src/core/filter.ts` | **Pure.** `evaluate(raffle, ctx)` returns eligible or a skip reason |
-| `src/core/store.ts` | Durable record of attempted slugs; atomic write to `DATA_DIR/entered.json` |
+| `src/core/store.ts` | Durable record of attempted slugs and their retry eligibility; atomic write to `DATA_DIR/entered.json` |
 | `src/core/entry-queue.ts` | Serial queue, in-flight dedupe, pacing, skip-reason de-duplication, orchestrates filter to register to store to notify |
 | `src/core/poller.ts` | Interval catch-up scan; budgeted requirement resolution and its cache; feeds the queue |
 | `src/discord/oauth.ts` | Authorize URL, code exchange, token refresh |
@@ -125,7 +125,7 @@ Each module has one job and a narrow interface, so it can be tested alone.
 | Route | Purpose |
 |---|---|
 | `POST /alphabot` | Alphabot webhook receiver |
-| `GET /health` | Railway health check; uptime, queue depth, guild-list age, remaining GET budget |
+| `GET /health` | Railway health check; uptime, queue depth, attempted vs entered counts, guild-list age, remaining GET budget |
 | `GET /discord/connect` | Redirect to Discord OAuth2 authorize |
 | `GET /discord/callback` | Exchange code, persist tokens, fetch guild list |
 
@@ -253,8 +253,9 @@ back to the owner's profile defaults — the desired behaviour in almost every c
 |---|---|
 | `401` from Alphabot | Fatal for API work. Log clearly (key invalid or subscription lapsed), notify Discord, stop the poller. The webhook server keeps running so the configured URL stays valid. |
 | `429` | Back off exponentially, honour `Retry-After`, retry up to 5 times |
-| `400` on register | Record the slug as attempted with the returned reason, notify, continue |
-| Network / 5xx | Retry 3 times with exponential backoff and jitter |
+| `400` on register | Alphabot declined the entry, so nothing was registered. Record it with a `retryAfter` of `entry.retryHours`, log it, continue. Not posted to Discord — rejections are expected and would flood the channel. |
+| Validation `success: false` | Same treatment as a `400`: recorded, retryable, logged only. |
+| Network / 5xx | Retry 3 times with exponential backoff and jitter. If it still fails the outcome is **unknown**, so the record is permanent — retrying could double-enter. Posted to Discord, because this is not something the owner could have predicted. |
 | Invalid webhook hash | Respond `200` (never leak validity), log the source address, drop the event |
 | Malformed webhook body | Respond `200`, log, drop |
 | Store write failure | Log and continue in memory; a lost record costs at most a redundant re-entry |

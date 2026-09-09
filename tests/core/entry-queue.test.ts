@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { EntryQueue } from '../../src/core/entry-queue.js';
-import { AuthError } from '../../src/api/client.js';
+import { ApiError, AuthError } from '../../src/api/client.js';
 import type { AppConfig } from '../../src/config.js';
 import type { RaffleWithRequirements } from '../../src/api/types.js';
 
@@ -12,6 +12,7 @@ const config = (over: Partial<AppConfig['entry']> = {}): AppConfig => ({
   entry: {
     delayMs: 700, dryRun: false, skipCaptcha: true, skipNftHolding: true,
     skipTokenGated: true, allowedBlockchains: [], excludeKeywords: [], minWinnerCount: 0,
+    retryHours: 6,
     ...over,
   },
   discord: {
@@ -31,12 +32,13 @@ function harness(over: Record<string, unknown> = {}) {
   const post = vi.fn(async () => ({ validation: { success: true, entries: 1 } }));
   const entered: string[] = [];
   const store = {
-    has: (slug: string) => entered.includes(slug),
+    isBlocked: (slug: string) => entered.includes(slug),
     record: vi.fn(async (r: { slug: string }) => { entered.push(r.slug); }),
   };
   const notifier = {
     entered: vi.fn(async () => {}), failed: vi.fn(async () => {}),
     skipped: vi.fn(async () => {}), won: vi.fn(async () => {}), fatal: vi.fn(async () => {}),
+    rejected: vi.fn(async () => {}),
   };
   const queue = new EntryQueue({
     config: config(),
@@ -103,7 +105,7 @@ describe('EntryQueue', () => {
     expect(sleep).toHaveBeenCalledTimes(1);
   });
 
-  it('records the failure and notifies when validation fails', async () => {
+  it('reports a validation failure as a rejection, not an error', async () => {
     const post = vi.fn(async () => ({
       resultMd: 'Not in server', validation: { success: false, reason: 'discord_invalid' },
     }));
@@ -111,10 +113,64 @@ describe('EntryQueue', () => {
     queue.submit(raffle(), 'webhook');
     await queue.idle();
 
-    expect(notifier.failed).toHaveBeenCalledOnce();
+    // Rejections are expected and stay out of the Discord channel.
+    expect(notifier.rejected).toHaveBeenCalledOnce();
+    expect(notifier.failed).not.toHaveBeenCalled();
     expect(store.record).toHaveBeenCalledWith(
       expect.objectContaining({ success: false, reason: 'discord_invalid' }),
     );
+  });
+
+  it('marks a validation rejection retryable', async () => {
+    const post = vi.fn(async () => ({ validation: { success: false, reason: 'tasks' } }));
+    const { queue, store } = harness({ client: { post, get: vi.fn() } });
+    queue.submit(raffle(), 'webhook');
+    await queue.idle();
+
+    const record = store.record.mock.calls[0]?.[0] as { retryAfter: number | null };
+    expect(record.retryAfter).toBeGreaterThan(Date.now());
+  });
+
+  it('marks a successful entry permanent', async () => {
+    const { queue, store } = harness();
+    queue.submit(raffle(), 'webhook');
+    await queue.idle();
+
+    const record = store.record.mock.calls[0]?.[0] as { retryAfter: number | null };
+    expect(record.retryAfter).toBeNull();
+  });
+
+  it('treats a 400 from alphabot as a retryable rejection', async () => {
+    const post = vi.fn().mockRejectedValue(new ApiError('One or more tasks incomplete.', 400));
+    const { queue, store, notifier } = harness({ client: { post, get: vi.fn() } });
+    queue.submit(raffle(), 'webhook');
+    await queue.idle();
+
+    expect(notifier.rejected).toHaveBeenCalledOnce();
+    expect(notifier.failed).not.toHaveBeenCalled();
+    const record = store.record.mock.calls[0]?.[0] as { retryAfter: number | null };
+    expect(record.retryAfter).toBeGreaterThan(Date.now());
+  });
+
+  it('keeps an unknown failure permanent so it cannot double-enter', async () => {
+    const post = vi.fn().mockRejectedValue(new Error('socket hang up'));
+    const { queue, store, notifier } = harness({ client: { post, get: vi.fn() } });
+    queue.submit(raffle(), 'webhook');
+    await queue.idle();
+
+    expect(notifier.failed).toHaveBeenCalledOnce();
+    const record = store.record.mock.calls[0]?.[0] as { retryAfter: number | null };
+    expect(record.retryAfter).toBeNull();
+  });
+
+  it('keeps a 500 permanent because the outcome is unknown', async () => {
+    const post = vi.fn().mockRejectedValue(new ApiError('server error', 500));
+    const { queue, store } = harness({ client: { post, get: vi.fn() } });
+    queue.submit(raffle(), 'webhook');
+    await queue.idle();
+
+    const record = store.record.mock.calls[0]?.[0] as { retryAfter: number | null };
+    expect(record.retryAfter).toBeNull();
   });
 
   it('records an api error without crashing the queue', async () => {
@@ -153,7 +209,7 @@ describe('EntryQueue', () => {
   });
 
   it('skips a raffle the store already knows about', async () => {
-    const store = { has: () => true, record: vi.fn(async () => {}) };
+    const store = { isBlocked: () => true, record: vi.fn(async () => {}) };
     const { queue, post, notifier } = harness({ store });
     queue.submit(raffle(), 'webhook');
     await queue.idle();
@@ -242,7 +298,7 @@ describe('EntryQueue', () => {
     const post = vi.fn().mockRejectedValue(new Error('boom'));
     // A store that forgets, so the retry is not blocked by `already_entered`
     // and the test isolates the in-flight guard itself.
-    const store = { has: () => false, record: vi.fn(async () => {}) };
+    const store = { isBlocked: () => false, record: vi.fn(async () => {}) };
     const { queue } = harness({ client: { post, get: vi.fn() }, store });
 
     queue.submit(raffle(), 'poller');

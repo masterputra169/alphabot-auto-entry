@@ -23,6 +23,7 @@ const fileSchema = z.object({
     allowedBlockchains: z.array(z.string()),
     excludeKeywords: z.array(z.string()),
     minWinnerCount: z.number().int().min(0),
+    retryHours: z.number().min(0).max(168),
   }),
   discord: z.object({
     requireGuildWhitelist: z.boolean(),

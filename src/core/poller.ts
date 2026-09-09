@@ -13,7 +13,7 @@ export interface PollerDeps {
   config: AppConfig;
   client: AlphabotClient;
   queue: Pick<EntryQueue, 'submit'>;
-  store: Pick<EntryStore, 'has'>;
+  store: Pick<EntryStore, 'isBlocked'>;
 }
 
 /** Downtime safety net: catches raffles whose webhook arrived while the bot was down. */
@@ -108,7 +108,7 @@ export class Poller {
     if (!req.includes('d') && !req.includes('r')) return false;
 
     if (this.attempted.has(raffle.slug)) return false;
-    return !store.has(raffle.slug);
+    return !store.isBlocked(raffle.slug);
   }
 
   private canResolve(resolvedThisCycle: number): boolean {

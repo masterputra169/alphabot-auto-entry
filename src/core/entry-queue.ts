@@ -1,4 +1,4 @@
-import { AuthError, type AlphabotClient } from '../api/client.js';
+import { ApiError, AuthError, type AlphabotClient } from '../api/client.js';
 import { register, type RegisterInput } from '../api/raffles.js';
 import type { RaffleWithRequirements } from '../api/types.js';
 import type { AppConfig } from '../config.js';
@@ -12,7 +12,7 @@ export type EntrySource = 'webhook' | 'poller';
 export interface EntryQueueDeps {
   config: AppConfig;
   client: AlphabotClient;
-  store: Pick<EntryStore, 'has' | 'record'>;
+  store: Pick<EntryStore, 'isBlocked' | 'record'>;
   notifier: DiscordNotifier;
   guilds: { getGuildIds: () => Promise<ReadonlySet<string>> };
   sleep?: (ms: number) => Promise<void>;
@@ -97,7 +97,7 @@ export class EntryQueue {
     const verdict = evaluate(raffle, {
       config,
       knownGuildIds,
-      isEntered: (slug) => store.has(slug),
+      isEntered: (slug) => store.isBlocked(slug),
       hasPassword: config.env.rafflePassword !== null,
       fromWebhook: source === 'webhook',
     });
@@ -139,14 +139,17 @@ export class EntryQueue {
         success: outcome.success,
         entries: outcome.entries,
         reason: outcome.reason,
+        retryAfter: outcome.success ? null : this.retryAt(),
       });
 
       if (outcome.success) {
         log.info(`Entered ${raffle.slug}`, { entries: outcome.entries, source });
         await notifier.entered(raffle, outcome);
       } else {
-        log.warn(`Entry rejected for ${raffle.slug}`, { reason: outcome.reason });
-        await notifier.failed(raffle, outcome.reason ?? outcome.resultMd ?? 'Entry was rejected');
+        await notifier.rejected(
+          raffle,
+          outcome.reason ?? outcome.resultMd ?? 'Entry was rejected',
+        );
       }
     } catch (error) {
       if (error instanceof AuthError) {
@@ -158,7 +161,11 @@ export class EntryQueue {
       }
 
       const message = (error as Error).message;
-      log.error(`Entry failed for ${raffle.slug}`, { message });
+      // A 400 is Alphabot declining the entry: nothing was registered, and the
+      // owner may well complete the missing task later, so allow a retry.
+      // Anything else leaves the outcome unknown, so it stays permanent.
+      const declined = error instanceof ApiError && error.status === 400;
+
       await store.record({
         slug: raffle.slug,
         name: raffle.name,
@@ -166,8 +173,19 @@ export class EntryQueue {
         success: false,
         entries: null,
         reason: message,
+        retryAfter: declined ? this.retryAt() : null,
       });
-      await notifier.failed(raffle, message);
+
+      if (declined) {
+        await notifier.rejected(raffle, message);
+      } else {
+        log.error(`Entry failed for ${raffle.slug}`, { message });
+        await notifier.failed(raffle, message);
+      }
     }
+  }
+
+  private retryAt(): number {
+    return Date.now() + this.deps.config.entry.retryHours * 3_600_000;
   }
 }

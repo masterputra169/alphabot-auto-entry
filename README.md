@@ -19,7 +19,9 @@ Requires an active Alphabot subscription — the API is subscription-gated.
   read through OAuth2 with the `identify guilds` scope. No user token, no self-bot — that would
   violate Discord's Terms of Service.
 - **Nothing is entered twice.** Every attempt is recorded, and the record survives redeploys when
-  a volume is mounted.
+  a volume is mounted. A successful entry is never repeated. An entry Alphabot *declined* is
+  retried after `entry.retryHours`, because "one or more tasks incomplete" is something you can
+  go and fix. A failure whose outcome is unknown stays permanent.
 - **Verdicts are revisited, not frozen.** A raffle skipped because Discord was not yet connected,
   or because its requirements had not been fetched, is judged again on the next poll cycle. No
   restart needed.
@@ -71,8 +73,9 @@ node dist/index.js --dry-run   # rehearse without registering anything
 7. **Alphabot webhook:** in your Alphabot profile developer section, set the webhook URL to
    `https://<your-domain>/alphabot`. Alphabot sends `webhook:test`; a 200 saves it.
 
-`https://<your-domain>/health` reports uptime, queue depth, remaining GET budget, how many
-raffles have been attempted, and whether Discord is connected.
+`https://<your-domain>/health` reports uptime, queue depth, remaining GET budget, `attempted`
+(every raffle tried) versus `entered` (the ones Alphabot accepted), and whether Discord is
+connected.
 
 ## Tuning
 
@@ -85,6 +88,7 @@ balance, or a Discord server you have not joined.
 | `entry.allowedBlockchains` | e.g. `["ethereum", "solana"]`; empty means all |
 | `entry.excludeKeywords` | Case-insensitive substrings matched against the raffle name |
 | `entry.minWinnerCount` | Ignore raffles with very few winners |
+| `entry.retryHours` | How long before a declined entry is attempted again (default 6) |
 | `entry.skipNftHolding` | Set `false` to attempt raffles requiring an NFT you may hold |
 | `entry.skipCaptcha` | Default `false`: attempt CAPTCHA-flagged raffles and let Alphabot decide |
 | `discord.requireGuildWhitelist` | Set `false` to attempt Discord-gated raffles regardless |

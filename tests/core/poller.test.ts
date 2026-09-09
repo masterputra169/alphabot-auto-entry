@@ -45,7 +45,7 @@ function harness(over: HarnessOptions = {}) {
     config: config(over.poll, over.discord),
     client: client as never,
     queue: { submit },
-    store: { has: (slug: string) => entered.includes(slug) },
+    store: { isBlocked: (slug: string) => entered.includes(slug) },
   });
 
   return { poller, submit, get, client };

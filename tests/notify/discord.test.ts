@@ -79,6 +79,13 @@ describe('DiscordNotifier', () => {
     spy.mockRestore();
   });
 
+  it('does not post an expected rejection, only logs it', async () => {
+    const fetchImpl = vi.fn(async () => ok());
+    const notifier = new DiscordNotifier(URL_, fetchImpl as unknown as typeof fetch);
+    await notifier.rejected(raffle, 'One or more tasks incomplete.');
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it('posts a win notification with the mint address', async () => {
     const fetchImpl = vi.fn(async () => ok());
     const notifier = new DiscordNotifier(URL_, fetchImpl as unknown as typeof fetch);

@@ -22,7 +22,7 @@ export interface ServerDeps {
   queue: Pick<EntryQueue, 'submit' | 'depth'>;
   notifier: DiscordNotifier;
   guilds: Pick<GuildDirectory, 'connected' | 'lastRefreshedAt' | 'saveTokens'>;
-  store: Pick<EntryStore, 'size'>;
+  store: Pick<EntryStore, 'size' | 'enteredCount'>;
   client: Pick<AlphabotClient, 'budgetRemaining'>;
   startedAt: number;
   fetchImpl?: typeof fetch;
@@ -75,7 +75,8 @@ export function createServer(deps: ServerDeps): Server {
         ok: true,
         uptimeSeconds: Math.round((Date.now() - deps.startedAt) / 1000),
         queueDepth: deps.queue.depth,
-        entered: deps.store.size,
+        attempted: deps.store.size,
+        entered: deps.store.enteredCount,
         getBudgetRemaining: deps.client.budgetRemaining,
         discordConnected: deps.guilds.connected,
         discordRefreshedAt: deps.guilds.lastRefreshedAt,

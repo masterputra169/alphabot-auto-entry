@@ -67,6 +67,42 @@ describe('EntryStore', () => {
     expect(store.has('after-corruption')).toBe(true);
   });
 
+  it('counts only successful entries', async () => {
+    const store = await EntryStore.open(tempDir());
+    await store.record({ ...rec('a'), success: true });
+    await store.record({ ...rec('b'), success: false });
+    expect(store.size).toBe(2);
+    expect(store.enteredCount).toBe(1);
+  });
+
+  it('blocks an unknown slug never, and a permanent record always', async () => {
+    const store = await EntryStore.open(tempDir());
+    expect(store.isBlocked('never-seen')).toBe(false);
+    await store.record({ ...rec('done'), retryAfter: null });
+    expect(store.isBlocked('done')).toBe(true);
+  });
+
+  it('keeps a legacy successful record permanent', async () => {
+    const store = await EntryStore.open(tempDir());
+    await store.record(rec('legacy-ok'));
+    expect(store.isBlocked('legacy-ok')).toBe(true);
+  });
+
+  it('lets a legacy failed record be attempted again', async () => {
+    // Records written before retryAfter existed were Alphabot declines; leaving
+    // them permanent would write off everything attempted before the upgrade.
+    const store = await EntryStore.open(tempDir());
+    await store.record({ ...rec('legacy-fail'), success: false });
+    expect(store.isBlocked('legacy-fail')).toBe(false);
+  });
+
+  it('unblocks a retryable record once its cooldown passes', async () => {
+    const store = await EntryStore.open(tempDir());
+    await store.record({ ...rec('later'), success: false, retryAfter: 5000 });
+    expect(store.isBlocked('later', 4999)).toBe(true);
+    expect(store.isBlocked('later', 5000)).toBe(false);
+  });
+
   it('keeps the in-memory record when the disk write fails', async () => {
     const store = await EntryStore.open(tempDir());
     const spy = vi
