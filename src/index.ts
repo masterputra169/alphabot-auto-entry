@@ -98,7 +98,8 @@ async function main(): Promise<void> {
 
   poller.start();
   blockers.start();
-  void poller.runOnce();
+  // Both run once immediately; their timers only cover the cycles after that.
+  void poller.runOnce().then(() => blockers.refresh());
 
   const shutdown = (signal: string) => {
     log.info(`Received ${signal}, shutting down`);
