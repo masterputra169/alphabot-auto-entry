@@ -101,9 +101,13 @@ export function loadConfig(opts: LoadOptions = {}): AppConfig {
 
   const baseUrl = optional(env.PUBLIC_BASE_URL);
 
+  // The wallet is per-deployment and config.json is committed, so env wins.
+  const mintAddress = optional(env.MINT_ADDRESS) ?? file.submission.mintAddress;
+
   return Object.freeze({
     ...file,
     discord: { ...file.discord, guildIds },
+    submission: { ...file.submission, mintAddress },
     env: {
       alphabotApiKey: apiKey,
       port: Number(env.PORT ?? 3000),

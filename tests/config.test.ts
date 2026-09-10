@@ -81,6 +81,38 @@ describe('loadConfig', () => {
     expect(cfg.env.publicBaseUrl).toBe('https://x.up.railway.app');
   });
 
+  it('takes the mint address from MINT_ADDRESS so it need not sit in git', () => {
+    const cfg = loadConfig({
+      configPath: writeConfig(VALID),
+      env: { ALPHABOT_API_KEY: 'k', MINT_ADDRESS: '0xabc' },
+    });
+    expect(cfg.submission.mintAddress).toBe('0xabc');
+  });
+
+  it('lets MINT_ADDRESS override a mint address already in the config file', () => {
+    const withWallet = {
+      ...VALID,
+      submission: { ...VALID.submission, mintAddress: '0xfromfile' },
+    };
+    const cfg = loadConfig({
+      configPath: writeConfig(withWallet),
+      env: { ALPHABOT_API_KEY: 'k', MINT_ADDRESS: '0xfromenv' },
+    });
+    expect(cfg.submission.mintAddress).toBe('0xfromenv');
+  });
+
+  it('keeps the config file mint address when MINT_ADDRESS is blank', () => {
+    const withWallet = {
+      ...VALID,
+      submission: { ...VALID.submission, mintAddress: '0xfromfile' },
+    };
+    const cfg = loadConfig({
+      configPath: writeConfig(withWallet),
+      env: { ALPHABOT_API_KEY: 'k', MINT_ADDRESS: '  ' },
+    });
+    expect(cfg.submission.mintAddress).toBe('0xfromfile');
+  });
+
   it('treats blank optional env values as null', () => {
     const cfg = loadConfig({
       configPath: writeConfig(VALID),

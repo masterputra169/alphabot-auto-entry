@@ -65,6 +65,7 @@ node dist/index.js --dry-run   # rehearse without registering anything
    | `DISCORD_CLIENT_SECRET` | Discord application secret |
    | `DISCORD_NOTIFY_WEBHOOK_URL` | a channel webhook in your own server |
    | `DISCORD_GUILD_IDS` | optional, comma separated, merged with the OAuth list |
+   | `MINT_ADDRESS` | optional, wallet submitted with each entry; overrides `submission.mintAddress` |
    | `RAFFLE_PASSWORD` | optional, answer for password-gated raffles |
 
 5. **Discord app:** create one at <https://discord.com/developers/applications>, then add the
@@ -119,7 +120,7 @@ balance, or a Discord server you have not joined.
 | `entry.allowedBlockchains` | e.g. `["ethereum", "solana"]`; empty means all |
 | `entry.excludeKeywords` | Case-insensitive substrings matched against the raffle name |
 | `entry.minWinnerCount` | Ignore raffles with very few winners |
-| `entry.retryHours` | How long before a declined entry is attempted again (default 6). A raffle Alphabot reports as ended is never rescheduled. |
+| `entry.retryHours` | How long before a declined entry is attempted again (default 6). A raffle Alphabot reports as ended, or as already won, is never rescheduled. |
 | `entry.skipNftHolding` | Set `false` to attempt raffles requiring an NFT you may hold |
 | `entry.skipCaptcha` | Default `false`: attempt CAPTCHA-flagged raffles and let Alphabot decide |
 | `discord.requireGuildWhitelist` | Set `false` to attempt Discord-gated raffles regardless |
