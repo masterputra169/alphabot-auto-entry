@@ -27,7 +27,7 @@ interface QueueItem {
 const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 /** Rejection reasons that will never become satisfiable. Observed in production. */
-const FINAL_REASONS = new Set(['opportunity_ended']);
+const FINAL_REASONS = new Set(['opportunity_ended', 'cannot_win_twice']);
 
 /**
  * Single consumer for both producers (webhook and poller). Owns dedupe and
