@@ -20,12 +20,17 @@ export interface EntryRecord {
   retryAfter?: number | null;
   /** Task categories Alphabot reported outstanding, e.g. `['discord']`. */
   blockers?: string[];
+  /** Set once Alphabot reports this raffle as won. */
+  won?: boolean;
 }
 
 const FILE_NAME = 'entered.json';
 
 /** Remembers every raffle already attempted, so none is entered twice. */
 export class EntryStore {
+  /** Distinguishes concurrent writes' temp files from one another. */
+  private writeSeq = 0;
+
   private constructor(
     private readonly filePath: string,
     private readonly records: Map<string, EntryRecord>,
@@ -71,11 +76,49 @@ export class EntryStore {
     return count;
   }
 
+  /** Raffles Alphabot reported as won. */
+  get wonCount(): number {
+    let count = 0;
+    for (const record of this.records.values()) {
+      if (record.won) count += 1;
+    }
+    return count;
+  }
+
+  /**
+   * Marks a raffle as won and reports whether that was news.
+   *
+   * Alphabot retries webhook deliveries, so the same `raffle:won` can arrive
+   * more than once; returning false on a repeat is what keeps the win channel
+   * from pinging twice. A win also implies an entry exists, so a raffle this
+   * bot never attempted still gets a permanent record rather than staying
+   * eligible for a pointless retry.
+   */
+  async markWon(slug: string, name: string): Promise<boolean> {
+    const existing = this.records.get(slug);
+    if (existing?.won) return false;
+
+    await this.record(existing
+      ? { ...existing, won: true, retryAfter: null }
+      : {
+        slug,
+        name,
+        at: Date.now(),
+        // The bot made no entry of its own here, so this must not count as one.
+        success: false,
+        entries: null,
+        reason: null,
+        retryAfter: null,
+        won: true,
+      });
+    return true;
+  }
+
   /** How many currently-blocked raffles sit behind each rejection reason. */
   blockedByReason(now: number = Date.now()): Record<string, number> {
     const counts: Record<string, number> = {};
     for (const record of this.records.values()) {
-      if (record.success || !this.isBlocked(record.slug, now)) continue;
+      if (record.success || record.won || !this.isBlocked(record.slug, now)) continue;
       const key = record.reason ?? 'unknown';
       counts[key] = (counts[key] ?? 0) + 1;
     }
@@ -90,7 +133,7 @@ export class EntryStore {
   blockedByTask(now: number = Date.now()): Record<string, number> {
     const counts: Record<string, number> = {};
     for (const record of this.records.values()) {
-      if (record.success || !this.isBlocked(record.slug, now)) continue;
+      if (record.success || record.won || !this.isBlocked(record.slug, now)) continue;
       for (const task of record.blockers ?? []) {
         counts[task] = (counts[task] ?? 0) + 1;
       }
@@ -102,7 +145,7 @@ export class EntryStore {
   blockedSlugs(task: string, now: number = Date.now()): string[] {
     const slugs: string[] = [];
     for (const record of this.records.values()) {
-      if (record.success || !this.isBlocked(record.slug, now)) continue;
+      if (record.success || record.won || !this.isBlocked(record.slug, now)) continue;
       if ((record.blockers ?? []).includes(task)) slugs.push(record.slug);
     }
     return slugs;
@@ -112,6 +155,9 @@ export class EntryStore {
   isBlocked(slug: string, now: number = Date.now()): boolean {
     const record = this.records.get(slug);
     if (!record) return false;
+
+    // A won raffle is over. Nothing about it is worth attempting again.
+    if (record.won) return true;
 
     if (record.retryAfter === undefined) {
       // Written before retry tracking existed. A success stays permanent; a
@@ -126,7 +172,13 @@ export class EntryStore {
   }
 
   async record(entry: EntryRecord): Promise<void> {
-    this.records.set(entry.slug, entry);
+    // A win is the final word on a raffle. An entry attempt that resolves after
+    // one arrives writes a whole fresh record, and letting that erase the win
+    // would let Alphabot's next redelivery announce it a second time.
+    const existing = this.records.get(entry.slug);
+    this.records.set(entry.slug, existing?.won
+      ? { ...entry, won: true, retryAfter: null }
+      : entry);
     try {
       await this.persist();
     } catch (error) {
@@ -139,7 +191,10 @@ export class EntryStore {
   private async persist(): Promise<void> {
     await mkdir(dirname(this.filePath), { recursive: true });
     const payload = JSON.stringify(Object.fromEntries(this.records), null, 2);
-    const tmpPath = `${this.filePath}.tmp`;
+    // The entry queue and the win webhook both write here, and they are not
+    // serialized against each other. One shared temp path would let a rename
+    // publish the other writer's half-written file.
+    const tmpPath = `${this.filePath}.${process.pid}.${this.writeSeq++}.tmp`;
     await writeFile(tmpPath, payload, 'utf8');
     await rename(tmpPath, this.filePath);
   }

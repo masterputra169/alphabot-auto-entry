@@ -22,6 +22,12 @@ Requires an active Alphabot subscription — the API is subscription-gated.
   a volume is mounted. A successful entry is never repeated. An entry Alphabot *declined* is
   retried after `entry.retryHours`, because "one or more tasks incomplete" is something you can
   go and fix. A failure whose outcome is unknown stays permanent.
+- **Wins get their own channel.** Alphabot's `raffle:won` webhook is the trigger. Set
+  `DISCORD_WIN_WEBHOOK_URL` to a webhook for a channel of its own and only wins land there;
+  leave it empty and wins keep going to the main channel. Alphabot redelivers webhooks, so a win
+  is recorded before it is announced, and that record outlives both a later entry attempt and a
+  redeploy — the same raffle is not announced twice. A won raffle also drops out of `blockedBy`
+  and `blockedByTask`, since there is nothing left to go and fix.
 - **Verdicts are revisited, not frozen.** A raffle skipped because Discord was not yet connected,
   or because its requirements had not been fetched, is judged again on the next poll cycle. No
   restart needed.
@@ -64,6 +70,8 @@ node dist/index.js --dry-run   # rehearse without registering anything
    | `DISCORD_CLIENT_ID` | Discord application id |
    | `DISCORD_CLIENT_SECRET` | Discord application secret |
    | `DISCORD_NOTIFY_WEBHOOK_URL` | a channel webhook in your own server |
+   | `DISCORD_WIN_WEBHOOK_URL` | optional, webhook of a separate channel that receives win alerts only |
+   | `DISCORD_WIN_MENTION` | optional, posted beside a win embed so it pings, e.g. `@everyone` |
    | `DISCORD_GUILD_IDS` | optional, comma separated, merged with the OAuth list |
    | `MINT_ADDRESS` | optional, wallet submitted with each entry; overrides `submission.mintAddress` |
    | `RAFFLE_PASSWORD` | optional, answer for password-gated raffles |
@@ -75,9 +83,9 @@ node dist/index.js --dry-run   # rehearse without registering anything
    `https://<your-domain>/alphabot`. Alphabot sends `webhook:test`; a 200 saves it.
 
 `https://<your-domain>/health` reports uptime, queue depth, remaining GET budget, `attempted`
-(every raffle tried) versus `entered` (the ones Alphabot accepted), `blockedBy` (a count of the
-raffles currently held back, grouped by Alphabot's own rejection reason), `blockedByTask`, and
-whether Discord is connected.
+(every raffle tried) versus `entered` (the ones Alphabot accepted) versus `won`, `blockedBy` (a
+count of the raffles currently held back, grouped by Alphabot's own rejection reason),
+`blockedByTask`, and whether Discord is connected.
 
 `blockedByTask` counts how many raffles each outstanding task is holding up, so
 `{"discord": 47, "twitter": 12}` means Discord requirements are the biggest thing standing in the

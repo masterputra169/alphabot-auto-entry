@@ -160,4 +160,96 @@ describe('EntryStore', () => {
     expect(store.has('resilient')).toBe(true);
     spy.mockRestore();
   });
+
+  it('reports a win as newly recorded the first time only', async () => {
+    const store = await EntryStore.open(tempDir());
+    await store.record(rec('lucky'));
+    expect(await store.markWon('lucky', 'Lucky Raffle')).toBe(true);
+    expect(await store.markWon('lucky', 'Lucky Raffle')).toBe(false);
+  });
+
+  it('keeps the original entry details when marking a win', async () => {
+    const store = await EntryStore.open(tempDir());
+    await store.record(rec('lucky'));
+    await store.markWon('lucky', 'Lucky Raffle');
+    expect(store.get('lucky')?.entries).toBe(2);
+    expect(store.get('lucky')?.won).toBe(true);
+  });
+
+  it('records a win on a raffle it never attempted itself', async () => {
+    const store = await EntryStore.open(tempDir());
+    expect(await store.markWon('manual', 'Entered By Hand')).toBe(true);
+    expect(store.get('manual')?.name).toBe('Entered By Hand');
+    expect(store.isBlocked('manual')).toBe(true);
+  });
+
+  it('never reschedules a raffle that was won', async () => {
+    const store = await EntryStore.open(tempDir());
+    await store.record({ ...rec('lucky'), success: false, retryAfter: 5000 });
+    await store.markWon('lucky', 'Lucky Raffle');
+    expect(store.isBlocked('lucky', 9_999_999)).toBe(true);
+  });
+
+  it('counts wins', async () => {
+    const store = await EntryStore.open(tempDir());
+    await store.record(rec('a'));
+    await store.record(rec('b'));
+    await store.markWon('a', 'A');
+    expect(store.wonCount).toBe(1);
+  });
+
+  it('remembers a win across reopen so it is not alerted twice', async () => {
+    const dir = tempDir();
+    const first = await EntryStore.open(dir);
+    await first.markWon('lucky', 'Lucky Raffle');
+    const second = await EntryStore.open(dir);
+    expect(await second.markWon('lucky', 'Lucky Raffle')).toBe(false);
+    expect(second.wonCount).toBe(1);
+  });
+
+  it('keeps a recorded win when a later entry attempt writes its outcome', async () => {
+    // The entry queue records a whole fresh record after its register() call,
+    // which must not be able to erase a win that landed in the meantime.
+    const store = await EntryStore.open(tempDir());
+    await store.markWon('lucky', 'Lucky Raffle');
+    await store.record({ ...rec('lucky'), success: false, reason: 'tasks', retryAfter: 5000 });
+    expect(store.get('lucky')?.won).toBe(true);
+    expect(store.wonCount).toBe(1);
+    expect(store.isBlocked('lucky', 9_999_999)).toBe(true);
+  });
+
+  it('leaves a won raffle out of the blocked stats', async () => {
+    const store = await EntryStore.open(tempDir());
+    await store.record({
+      ...rec('lucky'), success: false, reason: 'tasks', retryAfter: 5000, blockers: ['discord'],
+    });
+    await store.markWon('lucky', 'Lucky Raffle');
+    expect(store.blockedByReason()).toEqual({});
+    expect(store.blockedByTask()).toEqual({});
+    expect(store.blockedSlugs('discord')).toEqual([]);
+  });
+
+  it('does not count a win on a raffle it never entered as an entry', async () => {
+    const store = await EntryStore.open(tempDir());
+    await store.markWon('manual', 'Entered By Hand');
+    expect(store.enteredCount).toBe(0);
+    expect(store.wonCount).toBe(1);
+  });
+
+  it('marks a win once when two deliveries arrive together', async () => {
+    const store = await EntryStore.open(tempDir());
+    const results = await Promise.all([
+      store.markWon('lucky', 'Lucky Raffle'),
+      store.markWon('lucky', 'Lucky Raffle'),
+    ]);
+    expect(results.filter(Boolean)).toHaveLength(1);
+  });
+
+  it('persists both records when two writes overlap', async () => {
+    const dir = tempDir();
+    const store = await EntryStore.open(dir);
+    await Promise.all([store.record(rec('a')), store.markWon('b', 'B')]);
+    const raw = JSON.parse(readFileSync(join(dir, 'entered.json'), 'utf8'));
+    expect(Object.keys(raw).sort()).toEqual(['a', 'b']);
+  });
 });

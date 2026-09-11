@@ -27,6 +27,7 @@ async function main(): Promise<void> {
   registerSecret(loaded.env.alphabotApiKey);
   registerSecret(loaded.env.discordClientSecret);
   registerSecret(loaded.env.notifyWebhookUrl);
+  registerSecret(loaded.env.winWebhookUrl);
   registerSecret(loaded.env.rafflePassword);
 
   const dryRun = process.argv.includes('--dry-run') || loaded.entry.dryRun;
@@ -36,7 +37,11 @@ async function main(): Promise<void> {
 
   const client = new AlphabotClient({ apiKey: config.env.alphabotApiKey });
   const store = await EntryStore.open(config.env.dataDir);
-  const notifier = new DiscordNotifier(config.env.notifyWebhookUrl);
+  const notifier = new DiscordNotifier({
+    webhookUrl: config.env.notifyWebhookUrl,
+    winWebhookUrl: config.env.winWebhookUrl,
+    winMention: config.env.winMention,
+  });
 
   const guilds = await GuildDirectory.open(config.env.dataDir, {
     manualGuildIds: config.discord.guildIds,

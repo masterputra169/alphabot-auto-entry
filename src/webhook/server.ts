@@ -23,7 +23,10 @@ export interface ServerDeps {
   queue: Pick<EntryQueue, 'submit' | 'depth'>;
   notifier: DiscordNotifier;
   guilds: Pick<GuildDirectory, 'connected' | 'lastRefreshedAt' | 'saveTokens'>;
-  store: Pick<EntryStore, 'size' | 'enteredCount' | 'blockedByReason' | 'blockedByTask'>;
+  store: Pick<
+    EntryStore,
+    'size' | 'enteredCount' | 'wonCount' | 'blockedByReason' | 'blockedByTask' | 'markWon'
+  >;
   client: Pick<AlphabotClient, 'budgetRemaining'>;
   blockers?: Pick<BlockerReport, 'ranked' | 'pending'>;
   startedAt: number;
@@ -79,6 +82,7 @@ export function createServer(deps: ServerDeps): Server {
         queueDepth: deps.queue.depth,
         attempted: deps.store.size,
         entered: deps.store.enteredCount,
+        won: deps.store.wonCount,
         blockedBy: deps.store.blockedByReason(),
         blockedByTask: deps.store.blockedByTask(),
         blockingServers: deps.blockers?.ranked ?? [],
@@ -111,7 +115,11 @@ export function createServer(deps: ServerDeps): Server {
             return;
           }
 
-          void handleEvent(parsed, { queue: deps.queue, notifier: deps.notifier })
+          void handleEvent(parsed, {
+            queue: deps.queue,
+            notifier: deps.notifier,
+            store: deps.store,
+          })
             .catch((error: Error) => log.error('Webhook handler failed', {
               message: error.message,
             }));

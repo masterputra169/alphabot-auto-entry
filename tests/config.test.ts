@@ -121,4 +121,25 @@ describe('loadConfig', () => {
     expect(cfg.env.discordClientId).toBeNull();
     expect(cfg.env.rafflePassword).toBeNull();
   });
+
+  it('reads the win webhook url from the environment', () => {
+    const cfg = loadConfig({
+      configPath: writeConfig(VALID),
+      env: { ALPHABOT_API_KEY: 'k', DISCORD_WIN_WEBHOOK_URL: 'https://discord.com/api/webhooks/w' },
+    });
+    expect(cfg.env.winWebhookUrl).toBe('https://discord.com/api/webhooks/w');
+  });
+
+  it('leaves the win webhook url null so wins fall back to the main channel', () => {
+    const cfg = loadConfig({ configPath: writeConfig(VALID), env: { ALPHABOT_API_KEY: 'k' } });
+    expect(cfg.env.winWebhookUrl).toBeNull();
+  });
+
+  it('reads the win mention from the environment', () => {
+    const cfg = loadConfig({
+      configPath: writeConfig(VALID),
+      env: { ALPHABOT_API_KEY: 'k', DISCORD_WIN_MENTION: '@everyone' },
+    });
+    expect(cfg.env.winMention).toBe('@everyone');
+  });
 });

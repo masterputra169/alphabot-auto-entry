@@ -25,7 +25,8 @@ const config = (envOver: Partial<AppConfig['env']> = {}): AppConfig => ({
   env: {
     alphabotApiKey: KEY, port: 0, dataDir: './data', publicBaseUrl: 'https://app.test',
     discordClientId: 'cid', discordClientSecret: 'csecret',
-    notifyWebhookUrl: null, rafflePassword: null, ...envOver,
+    notifyWebhookUrl: null, winWebhookUrl: null, winMention: null,
+    rafflePassword: null, ...envOver,
   },
 });
 
@@ -39,7 +40,8 @@ function start(over: Partial<ServerDeps> = {}) {
     queue: { submit, depth: 0 },
     notifier: { won: vi.fn(async () => {}) } as never,
     guilds: { connected: true, lastRefreshedAt: 1, saveTokens } as never,
-    store: { size: 3, enteredCount: 2, blockedByReason: () => ({ opportunity_ended: 1 }),
+    store: { size: 3, enteredCount: 2, wonCount: 1, markWon: vi.fn(async () => true),
+      blockedByReason: () => ({ opportunity_ended: 1 }),
       blockedByTask: () => ({ discord: 4 }) },
     client: { budgetRemaining: 27 },
     blockers: { ranked: [{ id: 'g1', label: 'ZeroLabs', raffles: 5, invite: null, roles: [] }], pending: 2 },
@@ -73,6 +75,7 @@ describe('server', () => {
     expect(body.ok).toBe(true);
     expect(body.attempted).toBe(3);
     expect(body.entered).toBe(2);
+    expect(body.won).toBe(1);
     expect(body.blockedBy).toEqual({ opportunity_ended: 1 });
     expect(body.blockedByTask).toEqual({ discord: 4 });
     expect(body.blockingServers).toEqual([

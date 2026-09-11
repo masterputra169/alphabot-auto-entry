@@ -49,6 +49,10 @@ export interface EnvConfig {
   discordClientId: string | null;
   discordClientSecret: string | null;
   notifyWebhookUrl: string | null;
+  /** Channel dedicated to wins. Falls back to `notifyWebhookUrl` when unset. */
+  winWebhookUrl: string | null;
+  /** Sent as message content beside a win embed, e.g. `@everyone`, so it pings. */
+  winMention: string | null;
   rafflePassword: string | null;
 }
 
@@ -116,6 +120,8 @@ export function loadConfig(opts: LoadOptions = {}): AppConfig {
       discordClientId: optional(env.DISCORD_CLIENT_ID),
       discordClientSecret: optional(env.DISCORD_CLIENT_SECRET),
       notifyWebhookUrl: optional(env.DISCORD_NOTIFY_WEBHOOK_URL),
+      winWebhookUrl: optional(env.DISCORD_WIN_WEBHOOK_URL),
+      winMention: optional(env.DISCORD_WIN_MENTION),
       rafflePassword: optional(env.RAFFLE_PASSWORD),
     },
   });
