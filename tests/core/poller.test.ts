@@ -40,15 +40,16 @@ function harness(over: HarnessOptions = {}) {
   });
 
   const client = { get, post: vi.fn(), budgetRemaining: over.budget ?? 27 };
+  const rememberProjects = vi.fn(async () => 0);
   const submit = vi.fn();
   const poller = new Poller({
     config: config(over.poll, over.discord),
     client: client as never,
     queue: { submit },
-    store: { isBlocked: (slug: string) => entered.includes(slug) },
+    store: { isBlocked: (slug: string) => entered.includes(slug), rememberProjects },
   });
 
-  return { poller, submit, get, client };
+  return { poller, submit, get, client, rememberProjects };
 }
 
 const listed = (slug: string, reqString?: string): RaffleForList =>
@@ -311,5 +312,25 @@ describe('Poller discord requirement resolution', () => {
     });
     await poller.runOnce();
     expect(submit).toHaveBeenCalledWith(expect.objectContaining({ slug: 'gated' }), 'poller');
+  });
+
+  it('backfills projects from the list it has already paid for', async () => {
+    // The list call returns projectId for free; buying it again per raffle is
+    // what kept the blocker report from ever sharing a lookup.
+    const { poller, rememberProjects } = harness({
+      list: [
+        { slug: 'a', projectId: 'p1' },
+        { slug: 'b', projectId: 'p1' },
+        { slug: 'c' },
+      ] as RaffleForList[],
+    });
+
+    await poller.runOnce();
+
+    expect(rememberProjects).toHaveBeenCalledWith([
+      { slug: 'a', projectId: 'p1' },
+      { slug: 'b', projectId: 'p1' },
+      { slug: 'c', projectId: undefined },
+    ]);
   });
 });

@@ -353,4 +353,32 @@ describe('EntryStore', () => {
 
     expect(store.pendingWins().map((r) => r.slug)).toEqual(['lucky']);
   });
+
+  it('backfills the project on records written before it was tracked', async () => {
+    const store = await EntryStore.open(tempDir());
+    await store.record({ ...rec('a'), success: false, retryAfter: Date.now() + 60_000 });
+
+    const changed = await store.rememberProjects([
+      { slug: 'a', projectId: 'p1' },
+      { slug: 'never-seen', projectId: 'p2' },
+    ]);
+
+    expect(changed).toBe(1);
+    expect(store.get('a')?.projectId).toBe('p1');
+  });
+
+  it('leaves a project it already knows alone', async () => {
+    const store = await EntryStore.open(tempDir());
+    await store.record({ ...rec('a'), projectId: 'original' });
+
+    expect(await store.rememberProjects([{ slug: 'a', projectId: 'other' }])).toBe(0);
+    expect(store.get('a')?.projectId).toBe('original');
+  });
+
+  it('ignores raffles that carry no project', async () => {
+    const store = await EntryStore.open(tempDir());
+    await store.record(rec('a'));
+
+    expect(await store.rememberProjects([{ slug: 'a', projectId: undefined }])).toBe(0);
+  });
 });

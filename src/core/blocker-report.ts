@@ -156,7 +156,9 @@ export class BlockerReport {
 
         if (servers.length > 0) {
           this.servers.set(slug, servers);
-          const projectId = this.projectOf(slug);
+          // The fetched raffle is the authority on its own project; the store
+          // record may predate projects being tracked at all.
+          const projectId = raffle?.projectId ?? this.projectOf(slug);
           if (projectId) this.byProject.set(projectId, servers);
         }
       } catch (error) {

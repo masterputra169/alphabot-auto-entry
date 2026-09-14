@@ -13,7 +13,7 @@ export interface PollerDeps {
   config: AppConfig;
   client: AlphabotClient;
   queue: Pick<EntryQueue, 'submit'>;
-  store: Pick<EntryStore, 'isBlocked'>;
+  store: Pick<EntryStore, 'isBlocked' | 'rememberProjects'>;
 }
 
 /** Downtime safety net: catches raffles whose webhook arrived while the bot was down. */
@@ -50,6 +50,14 @@ export class Poller {
       pageSize: config.poll.pageSize,
     });
 
+    // This list already carries each raffle's project, and a blocked raffle
+    // still shows up here because nothing was ever registered for it. Writing
+    // it down costs nothing and is what lets one requirement lookup answer
+    // for a whole family of raffles.
+    const learned = await this.deps.store.rememberProjects(
+      raffles.map((r) => ({ slug: r.slug, projectId: r.projectId })),
+    );
+
     let resolvedThisCycle = 0;
     let unresolved = 0;
 
@@ -78,6 +86,7 @@ export class Poller {
     this.pruneCache(raffles);
 
     log.info(`Poller found ${raffles.length} unregistered active raffles`, {
+      projectsLearned: learned,
       resolved: resolvedThisCycle,
       deferred: unresolved,
       cached: this.enriched.size,

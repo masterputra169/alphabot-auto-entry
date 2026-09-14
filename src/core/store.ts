@@ -202,6 +202,32 @@ export class EntryStore {
       });
   }
 
+  /**
+   * Fills in the project of raffles already on record, and reports how many
+   * changed.
+   *
+   * The poller's list call carries `projectId` for free, and only a raffle
+   * whose project is known can be answered from a sibling's requirement
+   * lookup. Without this, every record written before projects were tracked
+   * would stay unmatchable until its retry came round.
+   */
+  async rememberProjects(
+    entries: readonly { slug: string; projectId?: string }[],
+  ): Promise<number> {
+    let changed = 0;
+
+    for (const { slug, projectId } of entries) {
+      if (!projectId) continue;
+      const record = this.records.get(slug);
+      if (!record || record.projectId) continue;
+      this.records.set(slug, { ...record, projectId });
+      changed += 1;
+    }
+
+    if (changed > 0) await this.save();
+    return changed;
+  }
+
   /** Wins whose alert has not reached Discord yet. */
   pendingWins(): EntryRecord[] {
     const pending: EntryRecord[] = [];
