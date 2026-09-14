@@ -25,9 +25,22 @@ Requires an active Alphabot subscription — the API is subscription-gated.
 - **Wins get their own channel.** Alphabot's `raffle:won` webhook is the trigger. Set
   `DISCORD_WIN_WEBHOOK_URL` to a webhook for a channel of its own and only wins land there;
   leave it empty and wins keep going to the main channel. Alphabot redelivers webhooks, so a win
-  is recorded before it is announced, and that record outlives both a later entry attempt and a
-  redeploy — the same raffle is not announced twice. A won raffle also drops out of `blockedBy`
-  and `blockedByTask`, since there is nothing left to go and fix.
+  is recorded the moment it is known and that record outlives both a later entry attempt and a
+  redeploy. Winning and announcing are tracked separately: a win whose alert never reached
+  Discord stays on a backlog that the bot retries itself every poll cycle, so nothing depends on
+  Alphabot choosing to redeliver, and `won` in `/health` always reflects what you actually won.
+  The same raffle is never announced twice. A won raffle also drops out of `blockedBy` and
+  `blockedByTask`, since there is nothing left to fix.
+- **An alert is not lost because Discord was busy.** Posts to one channel are queued, kept in
+  order and spaced to stay under Discord's 30-messages-a-minute ceiling, so a burst of entries
+  cannot outrun it. A rate limit is waited out for exactly as long as Discord asks; a `5xx` or a
+  network failure is retried with backoff. Entering a raffle never waits on any of this — a
+  first-come raffle is not going to wait for a chat message — and a shutdown flushes whatever
+  is still queued.
+- **The record stays small.** Every attempt rewrites `entered.json` whole, so a raffle whose
+  retry time has passed is forgotten — it was already eligible again, and keeping it changed no
+  decision. Compaction runs on startup and once a poll cycle. `attempted` in `/health` therefore
+  counts what is still remembered, not everything ever tried.
 - **Verdicts are revisited, not frozen.** A raffle skipped because Discord was not yet connected,
   or because its requirements had not been fetched, is judged again on the next poll cycle. No
   restart needed.

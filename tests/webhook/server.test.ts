@@ -38,9 +38,9 @@ function start(over: Partial<ServerDeps> = {}) {
   server = createServer({
     config: config(),
     queue: { submit, depth: 0 },
-    notifier: { won: vi.fn(async () => {}) } as never,
+    wins: { announce: vi.fn(async () => {}) } as never,
     guilds: { connected: true, lastRefreshedAt: 1, saveTokens } as never,
-    store: { size: 3, enteredCount: 2, wonCount: 1, markWon: vi.fn(async () => true),
+    store: { size: 3, enteredCount: 2, wonCount: 1, 
       blockedByReason: () => ({ opportunity_ended: 1 }),
       blockedByTask: () => ({ discord: 4 }) },
     client: { budgetRemaining: 27 },

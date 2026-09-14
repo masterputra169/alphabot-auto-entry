@@ -20,8 +20,16 @@ export interface EntryRecord {
   retryAfter?: number | null;
   /** Task categories Alphabot reported outstanding, e.g. `['discord']`. */
   blockers?: string[];
-  /** Set once Alphabot reports this raffle as won. */
+  /** Set once Alphabot reports this raffle as won. Never taken back. */
   won?: boolean;
+  /**
+   * Whether the win alert actually reached Discord.
+   *
+   * Winning and announcing are two different facts, and conflating them is
+   * what used to lose alerts. Absent on records written before this was
+   * tracked, which count as announced so old wins are not replayed.
+   */
+  announced?: boolean;
 }
 
 const FILE_NAME = 'entered.json';
@@ -30,6 +38,8 @@ const FILE_NAME = 'entered.json';
 export class EntryStore {
   /** Distinguishes concurrent writes' temp files from one another. */
   private writeSeq = 0;
+  /** Slugs whose alert is being attempted right now, so no two overlap. */
+  private readonly announcing = new Set<string>();
 
   private constructor(
     private readonly filePath: string,
@@ -51,7 +61,10 @@ export class EntryStore {
       }
     }
 
-    return new EntryStore(filePath, records);
+    const store = new EntryStore(filePath, records);
+    const dropped = await store.prune();
+    if (dropped > 0) log.info(`Forgot ${dropped} raffles that were retryable again`);
+    return store;
   }
 
   has(slug: string): boolean {
@@ -86,20 +99,26 @@ export class EntryStore {
   }
 
   /**
-   * Marks a raffle as won and reports whether that was news.
+   * Claims the right to announce a win, recording the win itself permanently.
    *
-   * Alphabot retries webhook deliveries, so the same `raffle:won` can arrive
-   * more than once; returning false on a repeat is what keeps the win channel
-   * from pinging twice. A win also implies an entry exists, so a raffle this
-   * bot never attempted still gets a permanent record rather than staying
-   * eligible for a pointless retry.
+   * True means the caller must announce it. False means someone else already
+   * has: the alert has landed before, or an attempt is in flight. The win is
+   * recorded either way — a raffle this bot never attempted still gets a
+   * record rather than staying eligible for a pointless retry.
    */
   async markWon(slug: string, name: string): Promise<boolean> {
     const existing = this.records.get(slug);
-    if (existing?.won) return false;
+    // `announced` absent means a record from before this was tracked, which
+    // counts as told; only an explicit `false` is still outstanding.
+    if (existing?.won && existing.announced !== false) return false;
+    if (this.announcing.has(slug)) return false;
+
+    this.announcing.add(slug);
+    // Already recorded and still outstanding: claim it without rewriting.
+    if (existing?.won) return true;
 
     await this.record(existing
-      ? { ...existing, won: true, retryAfter: null }
+      ? { ...existing, won: true, announced: false, retryAfter: null }
       : {
         slug,
         name,
@@ -110,8 +129,52 @@ export class EntryStore {
         reason: null,
         retryAfter: null,
         won: true,
+        announced: false,
       });
     return true;
+  }
+
+  /**
+   * Releases a claim from `markWon`. A delivered alert is remembered so it is
+   * never repeated; an undelivered one stays in `pendingWins` to be retried,
+   * rather than depending on Alphabot choosing to redeliver.
+   */
+  async settleWin(slug: string, delivered: boolean): Promise<void> {
+    this.announcing.delete(slug);
+    if (!delivered) return;
+
+    const record = this.records.get(slug);
+    if (!record) return;
+    this.records.set(slug, { ...record, announced: true });
+    await this.save();
+  }
+
+  /**
+   * Forgets records that no longer hold anything back, and reports how many.
+   *
+   * A raffle whose retry time has passed is already eligible again, so keeping
+   * it changes no decision — it only makes the file larger, and every attempt
+   * rewrites the whole of it. Deliberately not part of a write: something just
+   * recorded must still be readable, whatever its retry time says.
+   */
+  async prune(now: number = Date.now()): Promise<number> {
+    let dropped = 0;
+    for (const slug of [...this.records.keys()]) {
+      if (this.isBlocked(slug, now)) continue;
+      this.records.delete(slug);
+      dropped += 1;
+    }
+    if (dropped > 0) await this.save();
+    return dropped;
+  }
+
+  /** Wins whose alert has not reached Discord yet. */
+  pendingWins(): EntryRecord[] {
+    const pending: EntryRecord[] = [];
+    for (const record of this.records.values()) {
+      if (record.won && record.announced === false) pending.push(record);
+    }
+    return pending;
   }
 
   /** How many currently-blocked raffles sit behind each rejection reason. */
@@ -177,8 +240,13 @@ export class EntryStore {
     // would let Alphabot's next redelivery announce it a second time.
     const existing = this.records.get(entry.slug);
     this.records.set(entry.slug, existing?.won
-      ? { ...entry, won: true, retryAfter: null }
+      ? { ...entry, won: true, announced: existing.announced, retryAfter: null }
       : entry);
+    await this.save();
+  }
+
+  /** Losing the file must not lose the in-memory truth the bot is acting on. */
+  private async save(): Promise<void> {
     try {
       await this.persist();
     } catch (error) {
@@ -190,7 +258,7 @@ export class EntryStore {
 
   private async persist(): Promise<void> {
     await mkdir(dirname(this.filePath), { recursive: true });
-    const payload = JSON.stringify(Object.fromEntries(this.records), null, 2);
+    const payload = JSON.stringify(Object.fromEntries(this.records));
     // The entry queue and the win webhook both write here, and they are not
     // serialized against each other. One shared temp path would let a rename
     // publish the other writer's half-written file.

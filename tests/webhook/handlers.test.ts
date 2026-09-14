@@ -1,21 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { handleEvent, type HandlerDeps } from '../../src/webhook/handlers.js';
-import { EntryStore } from '../../src/core/store.js';
 import type { WebhookBody } from '../../src/api/types.js';
 
 const raffle = { _id: '1', slug: 'r1', name: 'R1', status: 'active' };
 
 async function deps() {
   const queue = { submit: vi.fn() };
-  const notifier = {
-    entered: vi.fn(async () => {}), failed: vi.fn(async () => {}),
-    skipped: vi.fn(async () => {}), won: vi.fn(async () => {}), fatal: vi.fn(async () => {}),
-  };
-  const store = await EntryStore.open(mkdtempSync(join(tmpdir(), 'abhook-')));
-  return { queue, notifier, store, deps: { queue, notifier, store } as unknown as HandlerDeps };
+  const wins = { announce: vi.fn(async () => {}) };
+  return { queue, wins, deps: { queue, wins } as unknown as HandlerDeps };
 }
 
 const body = (over: Partial<WebhookBody>): WebhookBody => ({
@@ -31,30 +23,26 @@ describe('handleEvent', () => {
     expect(d.queue.submit).toHaveBeenCalledWith(raffle, 'webhook');
   });
 
-  it('notifies on raffle:won', async () => {
+  it('hands raffle:won to the win announcer with its entry', async () => {
     const d = await deps();
     await handleEvent(won(), d.deps);
-    expect(d.notifier.won).toHaveBeenCalledWith(raffle, { mintAddress: '0x1' });
-  });
-
-  it('records the win so it is never retried', async () => {
-    const d = await deps();
-    await handleEvent(won(), d.deps);
-    expect(d.store.wonCount).toBe(1);
-    expect(d.store.isBlocked('r1')).toBe(true);
-  });
-
-  it('alerts once when alphabot redelivers the same win', async () => {
-    const d = await deps();
-    await handleEvent(won(), d.deps);
-    await handleEvent(won(), d.deps);
-    expect(d.notifier.won).toHaveBeenCalledOnce();
+    expect(d.wins.announce).toHaveBeenCalledWith(raffle, { mintAddress: '0x1' });
   });
 
   it('ignores raffle:won without a raffle payload', async () => {
     const d = await deps();
     await handleEvent(body({ event: 'raffle:won', data: {} }), d.deps);
-    expect(d.notifier.won).not.toHaveBeenCalled();
+    expect(d.wins.announce).not.toHaveBeenCalled();
+  });
+
+  it('warns about a raffle:won it cannot act on, rather than dropping it silently', async () => {
+    const spy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const d = await deps();
+
+    await handleEvent(body({ event: 'raffle:won', data: {} }), d.deps);
+
+    expect(spy.mock.calls[0]?.join(' ')).toContain('raffle:won');
+    spy.mockRestore();
   });
 
   it('ignores raffle:active without a raffle payload', async () => {
@@ -73,6 +61,7 @@ describe('handleEvent', () => {
     const d = await deps();
     await expect(handleEvent(body({ event: 'webhook:test' }), d.deps)).resolves.toBeUndefined();
     expect(d.queue.submit).not.toHaveBeenCalled();
-    expect(d.notifier.won).not.toHaveBeenCalled();
+    expect(d.wins.announce).not.toHaveBeenCalled();
   });
+
 });

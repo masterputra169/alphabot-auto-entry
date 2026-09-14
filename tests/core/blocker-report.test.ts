@@ -199,11 +199,21 @@ describe('BlockerReport', () => {
 
   it('keeps a budget reserve for the poller', async () => {
     const { report, get } = harness({
-      blocked: ['a'], requirements: { a: [{ id: 'g1' }] }, budget: 4,
+      blocked: ['a'], requirements: { a: [{ id: 'g1' }] }, budget: 2,
     });
     await report.refresh();
     expect(get).not.toHaveBeenCalled();
     expect(report.ranked).toEqual([]);
+  });
+
+  it('spends the budget the poller does not need', async () => {
+    // The poller costs one list call a cycle; holding back more than that
+    // simply left GETs unused while the report had 300 raffles to look up.
+    const { report, get } = harness({
+      blocked: ['a'], requirements: { a: [{ id: 'g1' }] }, budget: 3,
+    });
+    await report.refresh();
+    expect(get).toHaveBeenCalledOnce();
   });
 
   it('stops the cycle when the budget runs out mid-way', async () => {

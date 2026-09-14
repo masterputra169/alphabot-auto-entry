@@ -4,8 +4,14 @@ import type { AppConfig } from '../config.js';
 import { log } from '../logger.js';
 import type { EntryStore } from './store.js';
 
-/** GETs held back so the poller's list call always fits. */
-const BUDGET_RESERVE = 4;
+/**
+ * GETs held back so the poller's list call always fits.
+ *
+ * That call costs exactly one per cycle — the poller guards its own optional
+ * requirement lookups separately — so reserving more than a call plus a spare
+ * only left budget unspent while hundreds of raffles waited to be looked up.
+ */
+const BUDGET_RESERVE = 2;
 
 export interface BlockingServer {
   id: string;

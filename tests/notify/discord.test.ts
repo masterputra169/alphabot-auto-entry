@@ -17,6 +17,9 @@ function make(over: Partial<NotifierOptions> = {}) {
   const notifier = new DiscordNotifier({
     webhookUrl: URL_,
     fetchImpl: fetchImpl as unknown as typeof fetch,
+    // Retries and pacing are the sender's job and are tested there; here they
+    // only need to not cost the suite real seconds.
+    delivery: { sleep: async () => {}, minIntervalMs: 0 },
     ...over,
   });
   return { notifier, fetchImpl };
@@ -62,7 +65,7 @@ describe('DiscordNotifier', () => {
     const { notifier } = make({
       fetchImpl: (async () => new Response('nope', { status: 500 })) as unknown as typeof fetch,
     });
-    await expect(notifier.failed(raffle, 'boom')).resolves.toBeUndefined();
+    await expect(notifier.failed(raffle, 'boom')).resolves.toBe(false);
   });
 
   it('never throws when the network fails', async () => {
@@ -71,7 +74,7 @@ describe('DiscordNotifier', () => {
         throw new Error('offline');
       }) as unknown as typeof fetch,
     });
-    await expect(notifier.fatal('bad key')).resolves.toBeUndefined();
+    await expect(notifier.fatal('bad key')).resolves.toBe(false);
   });
 
   it('truncates very long failure messages', async () => {
@@ -167,5 +170,52 @@ describe('DiscordNotifier', () => {
     expect(fields.find((f) => f.name === 'Chain')?.value).toBe('ethereum');
     expect(fields.find((f) => f.name === 'Winners')?.value).toBe('25');
     expect(fields.find((f) => f.name === 'Your entries')?.value).toBe('7');
+  });
+
+  it('reports a delivered win, so the webhook may record it', async () => {
+    const { notifier } = make({ winWebhookUrl: WIN_URL });
+    await expect(notifier.won(raffle, undefined)).resolves.toBe(true);
+  });
+
+  it('reports an undelivered win, so alphabot’s redelivery can announce it', async () => {
+    const { notifier } = make({
+      winWebhookUrl: WIN_URL,
+      fetchImpl: (async () => new Response('down', { status: 500 })) as unknown as typeof fetch,
+    });
+    await expect(notifier.won(raffle, undefined)).resolves.toBe(false);
+  });
+
+  it('counts a win as delivered when no channel is configured at all', async () => {
+    const { notifier } = make({ webhookUrl: null, winWebhookUrl: null });
+    await expect(notifier.won(raffle, undefined)).resolves.toBe(true);
+  });
+
+  it('retries an entry alert that discord rate-limits', async () => {
+    let calls = 0;
+    const fetchImpl = vi.fn(async () => {
+      calls += 1;
+      return calls === 1
+        ? new Response(JSON.stringify({ retry_after: 0.2 }), { status: 429 })
+        : ok();
+    });
+    const { notifier } = make({ fetchImpl: fetchImpl as unknown as typeof fetch });
+
+    const sent = await notifier.entered(
+      raffle,
+      { success: true, entries: 1, reason: null, resultMd: null },
+    );
+
+    expect(sent).toBe(true);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it('flushes queued alerts so a redeploy does not swallow them', async () => {
+    const { notifier, fetchImpl } = make();
+
+    void notifier.entered(raffle, { success: true, entries: 1, reason: null, resultMd: null });
+    void notifier.failed(raffle, 'boom');
+    await notifier.flush();
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 });

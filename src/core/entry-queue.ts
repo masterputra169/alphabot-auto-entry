@@ -26,6 +26,28 @@ interface QueueItem {
 
 const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
+/**
+ * Hands an alert to the notifier without waiting for Discord.
+ *
+ * The notifier paces its own posts to stay inside Discord's channel limit, and
+ * a raffle that closes first-come-first-served must not wait on that. Delivery
+ * is the notifier's promise to keep; it retries, and a shutdown flushes it.
+ *
+ * What it must not do is fail quietly: an alert the notifier gave up on is
+ * named here, because the generic message from the sender cannot say which
+ * raffle went unannounced, and that is the whole complaint being fixed.
+ */
+function announce(label: string, sent: Promise<boolean>): void {
+  void sent.then(
+    (delivered) => {
+      if (!delivered) log.error(`Discord never received the alert for ${label}`);
+    },
+    (error: Error) => log.error(`Could not hand the alert for ${label} to the notifier`, {
+      message: error.message,
+    }),
+  );
+}
+
 /** Rejection reasons that will never become satisfiable. Observed in production. */
 const FINAL_REASONS = new Set(['opportunity_ended', 'cannot_win_twice']);
 
@@ -58,8 +80,17 @@ export class EntryQueue {
     if (this.inFlight.has(raffle.slug)) return;
     this.inFlight.add(raffle.slug);
     this.pending.push({ raffle, source });
+    this.wake();
+  }
+
+  private wake(): void {
     this.running ??= this.run().finally(() => {
       this.running = null;
+      // A submit landing between the loop draining and this callback would
+      // find `running` still set and start nothing, leaving the item queued
+      // with its slug held in `inFlight` — so it could not even be offered
+      // again until some unrelated submit happened along.
+      if (this.pending.length > 0) this.wake();
     });
   }
 
@@ -126,9 +157,9 @@ export class EntryQueue {
 
     if (config.entry.dryRun) {
       log.info(`DRY RUN would enter ${raffle.slug}`, { name: raffle.name, source });
-      await notifier.entered(raffle, {
+      announce(raffle.slug, notifier.entered(raffle, {
         success: true, entries: null, reason: null, resultMd: 'dry run', blockers: [],
-      });
+      }));
       return;
     }
 
@@ -148,7 +179,7 @@ export class EntryQueue {
 
       if (outcome.success) {
         log.info(`Entered ${raffle.slug}`, { entries: outcome.entries, source });
-        await notifier.entered(raffle, outcome);
+        announce(raffle.slug, notifier.entered(raffle, outcome));
       } else {
         await notifier.rejected(
           raffle,
@@ -159,8 +190,10 @@ export class EntryQueue {
       if (error instanceof AuthError) {
         this.authFailed = true;
         log.error('Alphabot authentication failed; no further entries will be attempted');
-        await notifier.fatal(error.message);
+        // Stop the poller before telling Discord: a rate-limited channel must
+        // not decide how long the bot keeps calling an API that rejects it.
         this.deps.onAuthError?.(error);
+        announce('the authentication failure', notifier.fatal(error.message));
         return;
       }
 
@@ -184,7 +217,7 @@ export class EntryQueue {
         await notifier.rejected(raffle, message);
       } else {
         log.error(`Entry failed for ${raffle.slug}`, { message });
-        await notifier.failed(raffle, message);
+        announce(raffle.slug, notifier.failed(raffle, message));
       }
     }
   }

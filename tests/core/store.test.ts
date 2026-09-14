@@ -198,13 +198,14 @@ describe('EntryStore', () => {
     expect(store.wonCount).toBe(1);
   });
 
-  it('remembers a win across reopen so it is not alerted twice', async () => {
+  it('does not alert twice across reopen once the win has been announced', async () => {
     const dir = tempDir();
     const first = await EntryStore.open(dir);
     await first.markWon('lucky', 'Lucky Raffle');
+    await first.settleWin('lucky', true);
+
     const second = await EntryStore.open(dir);
     expect(await second.markWon('lucky', 'Lucky Raffle')).toBe(false);
-    expect(second.wonCount).toBe(1);
   });
 
   it('keeps a recorded win when a later entry attempt writes its outcome', async () => {
@@ -251,5 +252,85 @@ describe('EntryStore', () => {
     await Promise.all([store.record(rec('a')), store.markWon('b', 'B')]);
     const raw = JSON.parse(readFileSync(join(dir, 'entered.json'), 'utf8'));
     expect(Object.keys(raw).sort()).toEqual(['a', 'b']);
+  });
+
+  it('asks for the win to be announced again when the alert never landed', async () => {
+    const dir = tempDir();
+    const first = await EntryStore.open(dir);
+    await first.markWon('lucky', 'Lucky Raffle');
+    await first.settleWin('lucky', false);
+
+    const second = await EntryStore.open(dir);
+    expect(await second.markWon('lucky', 'Lucky Raffle')).toBe(true);
+  });
+
+  it('keeps the win recorded even when its alert failed', async () => {
+    const store = await EntryStore.open(tempDir());
+    await store.markWon('lucky', 'Lucky Raffle');
+    await store.settleWin('lucky', false);
+
+    expect(store.wonCount).toBe(1);
+    expect(store.isBlocked('lucky')).toBe(true);
+  });
+
+  it('lists a win whose alert has not landed yet', async () => {
+    const store = await EntryStore.open(tempDir());
+    await store.markWon('lucky', 'Lucky Raffle');
+    await store.settleWin('lucky', false);
+
+    expect(store.pendingWins().map((r) => r.slug)).toEqual(['lucky']);
+  });
+
+  it('drops a win from the backlog once its alert lands', async () => {
+    const store = await EntryStore.open(tempDir());
+    await store.markWon('lucky', 'Lucky Raffle');
+    await store.settleWin('lucky', true);
+
+    expect(store.pendingWins()).toHaveLength(0);
+  });
+
+  it('never re-announces a win recorded before announcements were tracked', async () => {
+    const dir = tempDir();
+    writeFileSync(join(dir, 'entered.json'), JSON.stringify({
+      old: { slug: 'old', name: 'Old', at: 1, success: true, entries: 1, reason: null, won: true },
+    }));
+    const store = await EntryStore.open(dir);
+
+    expect(store.pendingWins()).toHaveLength(0);
+    expect(await store.markWon('old', 'Old')).toBe(false);
+  });
+
+  it('refuses a second claim while an announcement is still in flight', async () => {
+    const store = await EntryStore.open(tempDir());
+    expect(await store.markWon('lucky', 'Lucky Raffle')).toBe(true);
+    expect(await store.markWon('lucky', 'Lucky Raffle')).toBe(false);
+  });
+
+  it('forgets records that are already eligible to be attempted again', async () => {
+    const dir = tempDir();
+    const store = await EntryStore.open(dir);
+    await store.record({ ...rec('stale'), success: false, retryAfter: 5000 });
+    await store.record(rec('kept'));
+
+    expect(await store.prune(9_999_999)).toBe(1);
+    expect(store.has('stale')).toBe(false);
+    expect(store.has('kept')).toBe(true);
+  });
+
+  it('keeps a record readable straight after writing it, whatever its retry time', async () => {
+    const store = await EntryStore.open(tempDir());
+    await store.record({ ...rec('fresh'), success: false, retryAfter: 5000 });
+    expect(store.get('fresh')?.slug).toBe('fresh');
+  });
+
+  it('compacts the file on open', async () => {
+    const dir = tempDir();
+    const first = await EntryStore.open(dir);
+    await first.record({ ...rec('stale'), success: false, retryAfter: 5000 });
+    await first.record(rec('kept'));
+
+    const second = await EntryStore.open(dir);
+    expect(second.size).toBe(1);
+    expect(second.has('kept')).toBe(true);
   });
 });

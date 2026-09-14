@@ -14,18 +14,18 @@ import {
 } from '../discord/oauth.js';
 import type { GuildDirectory } from '../discord/guilds.js';
 import { log } from '../logger.js';
-import type { DiscordNotifier } from '../notify/discord.js';
+import type { WinAnnouncer } from '../notify/win-announcer.js';
 import { handleEvent } from './handlers.js';
 import { verifyWebhook } from './verify.js';
 
 export interface ServerDeps {
   config: AppConfig;
   queue: Pick<EntryQueue, 'submit' | 'depth'>;
-  notifier: DiscordNotifier;
+  wins: Pick<WinAnnouncer, 'announce'>;
   guilds: Pick<GuildDirectory, 'connected' | 'lastRefreshedAt' | 'saveTokens'>;
   store: Pick<
     EntryStore,
-    'size' | 'enteredCount' | 'wonCount' | 'blockedByReason' | 'blockedByTask' | 'markWon'
+    'size' | 'enteredCount' | 'wonCount' | 'blockedByReason' | 'blockedByTask'
   >;
   client: Pick<AlphabotClient, 'budgetRemaining'>;
   blockers?: Pick<BlockerReport, 'ranked' | 'pending'>;
@@ -115,11 +115,7 @@ export function createServer(deps: ServerDeps): Server {
             return;
           }
 
-          void handleEvent(parsed, {
-            queue: deps.queue,
-            notifier: deps.notifier,
-            store: deps.store,
-          })
+          void handleEvent(parsed, { queue: deps.queue, wins: deps.wins })
             .catch((error: Error) => log.error('Webhook handler failed', {
               message: error.message,
             }));

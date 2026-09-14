@@ -354,4 +354,65 @@ describe('EntryQueue', () => {
     queue.submit(raffle({ slug: 'b' }), 'webhook');
     expect(queue.depth).toBeGreaterThan(0);
   });
+
+  it('does not let a slow discord alert hold up the next entry', async () => {
+    // Discord pacing must never decide how fast a first-come raffle is entered.
+    const stalled = new Promise<boolean>(() => {});
+    const { queue, post } = harness({
+      notifier: {
+        entered: vi.fn(() => stalled), failed: vi.fn(async () => true),
+        skipped: vi.fn(async () => {}), won: vi.fn(async () => true),
+        fatal: vi.fn(async () => true), rejected: vi.fn(async () => {}),
+      },
+    });
+
+    queue.submit(raffle({ slug: 'first' }), 'webhook');
+    queue.submit(raffle({ slug: 'second' }), 'webhook');
+    await queue.idle();
+
+    expect(post).toHaveBeenCalledTimes(2);
+  });
+
+  it('names the raffle whose alert discord never received', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { queue } = harness({
+      notifier: {
+        entered: vi.fn(async () => false), failed: vi.fn(async () => true),
+        skipped: vi.fn(async () => {}), won: vi.fn(async () => true),
+        fatal: vi.fn(async () => true), rejected: vi.fn(async () => {}),
+      },
+    });
+
+    queue.submit(raffle({ slug: 'never-announced' }), 'webhook');
+    await queue.idle();
+    // The alert is deliberately not awaited, so let its report settle.
+    await new Promise((r) => { setTimeout(r, 0); });
+
+    expect(spy.mock.calls.flat().join(' ')).toContain('never-announced');
+    spy.mockRestore();
+  });
+
+  it('never reports itself idle with work still queued', async () => {
+    const { queue, post } = harness();
+
+    queue.submit(raffle({ slug: 'a' }), 'webhook');
+    queue.submit(raffle({ slug: 'b' }), 'poller');
+    queue.submit(raffle({ slug: 'c' }), 'webhook');
+    await queue.idle();
+
+    expect(queue.depth).toBe(0);
+    expect(post).toHaveBeenCalledTimes(3);
+  });
+
+  it('wakes again for work submitted after it had gone idle', async () => {
+    const { queue, post } = harness();
+
+    queue.submit(raffle({ slug: 'first' }), 'webhook');
+    await queue.idle();
+    queue.submit(raffle({ slug: 'second' }), 'webhook');
+    await queue.idle();
+
+    expect(queue.depth).toBe(0);
+    expect(post).toHaveBeenCalledTimes(2);
+  });
 });

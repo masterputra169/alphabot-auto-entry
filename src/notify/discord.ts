@@ -2,6 +2,7 @@ import { log } from '../logger.js';
 import type { RaffleEntry, RaffleForList } from '../api/types.js';
 import type { RegisterOutcome } from '../api/raffles.js';
 import type { SkipReason } from '../core/filter.js';
+import { WebhookSender, type SenderOptions } from './sender.js';
 
 const COLOR_SUCCESS = 0x2ecc71;
 const COLOR_FAILURE = 0xe67e22;
@@ -36,6 +37,8 @@ export interface NotifierOptions {
   /** Sent as message content beside a win embed, e.g. `@everyone`, so it pings. */
   winMention?: string | null;
   fetchImpl?: typeof fetch;
+  /** Retry and pacing behaviour; the defaults suit Discord's real limits. */
+  delivery?: SenderOptions;
 }
 
 const raffleUrl = (slug: string) => `https://www.alphabot.app/${slug}`;
@@ -56,23 +59,27 @@ export class DiscordNotifier {
   private readonly webhookUrl: string | null;
   private readonly winWebhookUrl: string | null;
   private readonly winMention: string | null;
-  private readonly fetchImpl: typeof fetch;
+  private readonly sender: WebhookSender;
 
   constructor(options: NotifierOptions) {
     this.webhookUrl = options.webhookUrl;
     this.winWebhookUrl = options.winWebhookUrl ?? null;
     this.winMention = options.winMention ?? null;
-    this.fetchImpl = options.fetchImpl ?? fetch;
+    this.sender = new WebhookSender({
+      fetchImpl: options.fetchImpl,
+      ...options.delivery,
+    });
   }
 
-  async entered(raffle: RaffleForList, outcome: RegisterOutcome): Promise<void> {
+  /** Resolves with whether the alert reached Discord. */
+  async entered(raffle: RaffleForList, outcome: RegisterOutcome): Promise<boolean> {
     const fields: EmbedField[] = [];
     if (outcome.entries !== null) {
       fields.push({ name: 'Entries', value: String(outcome.entries), inline: true });
     }
     fields.push(...raffleFields(raffle));
 
-    await this.send({
+    return this.send({
       title: `Entered: ${raffle.name}`,
       url: raffleUrl(raffle.slug),
       color: COLOR_SUCCESS,
@@ -90,8 +97,8 @@ export class DiscordNotifier {
   }
 
   /** Something went wrong that the owner could not have predicted. */
-  async failed(raffle: RaffleForList, message: string): Promise<void> {
-    await this.send({
+  async failed(raffle: RaffleForList, message: string): Promise<boolean> {
+    return this.send({
       title: `Entry failed: ${raffle.name}`,
       url: raffleUrl(raffle.slug),
       description: message.slice(0, 1000),
@@ -104,7 +111,7 @@ export class DiscordNotifier {
    * The one notification worth interrupting someone for, so it goes to its own
    * channel when one is configured and may carry a mention.
    */
-  async won(raffle: RaffleForList, entry: RaffleEntry | undefined): Promise<void> {
+  async won(raffle: RaffleForList, entry: RaffleEntry | undefined): Promise<boolean> {
     const fields: EmbedField[] = [];
     if (entry?.mintAddress) {
       fields.push({ name: 'Mint address', value: entry.mintAddress, inline: false });
@@ -114,7 +121,7 @@ export class DiscordNotifier {
     }
     fields.push(...raffleFields(raffle));
 
-    await this.send({
+    return this.send({
       title: `🏆 Won: ${raffle.name}`,
       url: raffleUrl(raffle.slug),
       color: COLOR_WIN,
@@ -123,13 +130,18 @@ export class DiscordNotifier {
     }, { url: this.winWebhookUrl ?? this.webhookUrl, mention: this.winMention });
   }
 
-  async fatal(message: string): Promise<void> {
-    await this.send({
+  async fatal(message: string): Promise<boolean> {
+    return this.send({
       title: 'Alphabot Auto Entry stopped',
       description: message.slice(0, 1000),
       color: COLOR_FATAL,
       timestamp: new Date().toISOString(),
     });
+  }
+
+  /** Waits for alerts still queued, so a shutdown does not discard them. */
+  async flush(): Promise<void> {
+    await this.sender.drain();
   }
 
   /** Skips are the common case; logging them keeps the channel readable. */
@@ -141,25 +153,18 @@ export class DiscordNotifier {
     });
   }
 
-  private async send(embed: Embed, target?: Target): Promise<void> {
+  /**
+   * True once Discord has the message. A channel that is not configured counts
+   * as delivered: there is nothing outstanding, so nothing to retry.
+   */
+  private async send(embed: Embed, target?: Target): Promise<boolean> {
     const url = target?.url ?? this.webhookUrl;
-    if (!url) return;
+    if (!url) return true;
 
     const mention = target?.mention;
-    try {
-      const response = await this.fetchImpl(url, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          ...(mention ? { content: mention } : {}),
-          embeds: [embed],
-        }),
-      });
-      if (!response.ok) {
-        log.warn('Discord notification rejected', { status: response.status });
-      }
-    } catch (error) {
-      log.warn('Discord notification failed', { message: (error as Error).message });
-    }
+    return this.sender.post(url, {
+      ...(mention ? { content: mention } : {}),
+      embeds: [embed],
+    });
   }
 }
