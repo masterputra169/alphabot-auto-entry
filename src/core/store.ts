@@ -20,6 +20,13 @@ export interface EntryRecord {
   retryAfter?: number | null;
   /** Task categories Alphabot reported outstanding, e.g. `['discord']`. */
   blockers?: string[];
+  /**
+   * Alphabot's project for this raffle. Sibling raffles of one project share
+   * their Discord requirements, so one lookup can answer for all of them.
+   */
+  projectId?: string;
+  /** Consecutive declines for the same reason; each one lengthens the wait. */
+  attempts?: number;
   /** Set once Alphabot reports this raffle as won. Never taken back. */
   won?: boolean;
   /**
@@ -166,6 +173,33 @@ export class EntryStore {
     }
     if (dropped > 0) await this.save();
     return dropped;
+  }
+
+  /**
+   * Records a win that must never be announced.
+   *
+   * Reconciling against Alphabot turns up wins this bot had no part in —
+   * older than the bot, or entered by hand. They are worth remembering so the
+   * raffle is not attempted again, but announcing a pile of them at once
+   * would be noise rather than news.
+   */
+  async seedWon(slug: string, name: string): Promise<void> {
+    const existing = this.records.get(slug);
+    if (existing?.won) return;
+
+    await this.record(existing
+      ? { ...existing, won: true, announced: true, retryAfter: null }
+      : {
+        slug,
+        name,
+        at: Date.now(),
+        success: false,
+        entries: null,
+        reason: null,
+        retryAfter: null,
+        won: true,
+        announced: true,
+      });
   }
 
   /** Wins whose alert has not reached Discord yet. */

@@ -19,6 +19,8 @@ interface Options {
   budget?: number;
   poll?: Partial<AppConfig['poll']>;
   getImpl?: ReturnType<typeof vi.fn>;
+  /** slug -> the Alphabot project it belongs to. */
+  projects?: Record<string, string>;
 }
 
 function harness(over: Options = {}) {
@@ -30,11 +32,15 @@ function harness(over: Options = {}) {
     return { raffle: { slug, discordServerRoles: requirements[slug] } };
   });
 
+  const projects = over.projects ?? {};
   const client = { get, post: vi.fn(), budgetRemaining: over.budget ?? 27 };
   const report = new BlockerReport({
     config: config(over.poll),
     client: client as never,
-    store: { blockedSlugs: () => blocked },
+    store: {
+      blockedSlugs: () => blocked,
+      get: (slug: string) => (projects[slug] ? { projectId: projects[slug] } : undefined),
+    } as never,
   });
 
   return { report, get, setBlocked: (s: string[]) => { blocked = s; } };
@@ -269,5 +275,67 @@ describe('BlockerReport', () => {
     report.start();
     report.stop();
     expect(report.ranked).toEqual([]);
+  });
+
+  it('spends one lookup on a project, not one on each of its raffles', async () => {
+    // Alphabot runs whole families of raffles off one project, and they share
+    // the Discord requirement. Paying a GET for each was what kept the report
+    // hundreds of raffles behind.
+    const { report, get } = harness({
+      blocked: ['dfam-a', 'dfam-b', 'dfam-c'],
+      projects: { 'dfam-a': 'p1', 'dfam-b': 'p1', 'dfam-c': 'p1' },
+      requirements: { 'dfam-a': [{ id: 'g1', label: 'DFAM' }] },
+    });
+
+    await report.refresh();
+
+    expect(get).toHaveBeenCalledOnce();
+    expect(report.ranked[0]?.raffles).toBe(3);
+    expect(report.pending).toBe(0);
+  });
+
+  it('still looks up each raffle that belongs to no project', async () => {
+    const { report, get } = harness({
+      blocked: ['a', 'b'],
+      requirements: { a: [{ id: 'g1' }], b: [{ id: 'g2' }] },
+    });
+
+    await report.refresh();
+
+    expect(get).toHaveBeenCalledTimes(2);
+  });
+
+  it('applies a known project even when the budget is spent', async () => {
+    const { report, get } = harness({
+      blocked: ['dfam-a'],
+      projects: { 'dfam-a': 'p1', 'dfam-b': 'p1' },
+      requirements: { 'dfam-a': [{ id: 'g1', label: 'DFAM' }] },
+    });
+    await report.refresh();
+    get.mockClear();
+
+    // A sibling appears later, with nothing left to spend on it.
+    const { report: poor } = harness({ blocked: [], budget: 0 });
+    expect(poor.ranked).toEqual([]);
+
+    expect(report.ranked[0]?.label).toBe('DFAM');
+  });
+
+  it('forgets a project once none of its raffles are blocked', async () => {
+    const { report, setBlocked, get } = harness({
+      blocked: ['dfam-a'],
+      projects: { 'dfam-a': 'p1' },
+      requirements: { 'dfam-a': [{ id: 'g1' }] },
+    });
+    await report.refresh();
+
+    setBlocked([]);
+    await report.refresh();
+    setBlocked(['dfam-a']);
+    get.mockClear();
+    await report.refresh();
+
+    // The cache was dropped with the raffle, so it is looked up afresh.
+    expect(get).toHaveBeenCalledOnce();
   });
 });

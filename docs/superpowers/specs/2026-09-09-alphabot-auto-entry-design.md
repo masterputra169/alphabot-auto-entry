@@ -259,6 +259,7 @@ back to the owner's profile defaults — the desired behaviour in almost every c
 | Invalid webhook hash | Respond `200` (never leak validity), log the source address, drop the event |
 | Malformed webhook body | Respond `200`, log, drop |
 | Store write failure | Log and continue in memory; a lost record costs at most a redundant re-entry |
+| Win webhook never delivered | `WinAnnouncer.reconcile()` asks `GET /raffles?filter=winners` at startup and every `poll.reconcileWinsHours`, and announces any win the bot entered but never announced. Wins on raffles the bot did not enter are seeded as already announced. |
 | Discord notify failure | Retried: a `429` waits exactly as long as Discord asks, a `5xx` or network error backs off. Posts to one channel are queued in order and paced under the 30-per-minute channel ceiling. Entering never waits on any of it, and a shutdown flushes the queue. Only a non-`429` `4xx` is dropped, because Discord will never accept that payload. |
 | Win alert undeliverable | The win stays recorded; only `announced` is left unset, so it sits in `pendingWins()` and `WinAnnouncer` retries it every poll cycle. Nothing depends on Alphabot redelivering, and a redelivery colliding with an attempt in flight is safely ignored. Records written before `announced` existed count as announced, so old wins are never replayed. |
 

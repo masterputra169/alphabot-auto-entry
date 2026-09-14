@@ -46,6 +46,28 @@ export async function listActiveRaffles(
   return data?.raffles ?? [];
 }
 
+/**
+ * Raffles this account has won, straight from Alphabot.
+ *
+ * The `raffle:won` webhook is the fast path, but a delivery that arrives
+ * while the container is restarting is simply gone — and a win nobody was
+ * ever told about looks exactly like a win whose alert failed. This is the
+ * only way to notice one after the fact. Costs one GET from the hourly budget.
+ */
+export async function listWonRaffles(
+  client: AlphabotClient,
+  opts: ListOptions = {},
+): Promise<RaffleForList[]> {
+  const data = await client.get<RafflesListData | undefined>('raffles', {
+    filter: 'winners',
+    sort: 'newest',
+    sortDir: -1,
+    pageSize: opts.pageSize ?? 50,
+    pageNum: opts.pageNum ?? 0,
+  });
+  return data?.raffles ?? [];
+}
+
 export interface RegisterInput {
   slug: string;
   mintAddress?: string;

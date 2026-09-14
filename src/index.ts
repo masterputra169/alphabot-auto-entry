@@ -76,7 +76,10 @@ async function main(): Promise<void> {
   const wins = new WinAnnouncer({
     store,
     notifier,
+    client,
     intervalSeconds: config.poll.intervalSeconds,
+    reconcileHours: config.poll.reconcileWinsHours,
+    pageSize: config.poll.pageSize,
   });
 
   const server = createServer({
@@ -119,9 +122,26 @@ async function main(): Promise<void> {
   }, config.poll.intervalSeconds * 1000);
   compaction.unref();
 
+  // Hundreds of raffles sit behind a few Discord servers, and that is the one
+  // part of the yield only the owner can move. Sent on startup too, because a
+  // weekly timer on a service that redeploys would never fire.
+  const sendDigest = (): void => {
+    const top = blockers.ranked.slice(0, config.notify.blockerDigestSize);
+    void notifier.blockers(top, blockers.pending);
+  };
+  const digestHours = config.notify.blockerDigestHours;
+  const digest = digestHours > 0
+    ? setInterval(sendDigest, digestHours * 3_600_000)
+    : null;
+  digest?.unref();
+
   // These run once immediately; their timers only cover the cycles after that.
-  void poller.runOnce().then(() => blockers.refresh());
-  void wins.retryPending();
+  void poller.runOnce()
+    .then(() => blockers.refresh())
+    .then(() => { if (digest) sendDigest(); });
+  // A win delivered while the container was restarting is only findable by
+  // asking, and a restart is exactly what just happened.
+  void wins.retryPending().then(() => wins.reconcile());
 
   const shutdown = (signal: string) => {
     log.info(`Received ${signal}, shutting down`);
@@ -129,6 +149,7 @@ async function main(): Promise<void> {
     blockers.stop();
     wins.stop();
     clearInterval(compaction);
+    if (digest) clearInterval(digest);
     // Stop taking new work before draining, or an alert raised during the
     // flush would not be among the ones waited for. Alerts are paced, so a
     // redeploy can catch some still queued, and losing those would be losing

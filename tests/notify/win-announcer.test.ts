@@ -8,14 +8,18 @@ import type { RaffleForList } from '../../src/api/types.js';
 
 const raffle = { _id: '1', slug: 'r1', name: 'R1', status: 'active' } as RaffleForList;
 
-async function make(won = vi.fn(async () => true)) {
+async function make(won = vi.fn(async () => true), winners: unknown[] = []) {
   const store = await EntryStore.open(mkdtempSync(join(tmpdir(), 'abwin-')));
+  const get = vi.fn(async () => ({ raffles: winners }));
   const announcer = new WinAnnouncer({
     store,
     notifier: { won } as never,
+    client: { get } as never,
     intervalSeconds: 600,
+    reconcileHours: 6,
+    pageSize: 50,
   });
-  return { store, announcer, won };
+  return { store, announcer, won, get };
 }
 
 describe('WinAnnouncer', () => {
@@ -118,5 +122,55 @@ describe('WinAnnouncer', () => {
     const { announcer } = await make();
     announcer.start();
     expect(() => announcer.stop()).not.toThrow();
+  });
+
+  it('announces a win whose webhook never arrived', async () => {
+    // The container was restarting when Alphabot delivered raffle:won, so
+    // nothing ever heard about it. Only asking the API can find that.
+    const { store, announcer, won } = await make(vi.fn(async () => true), [
+      { _id: '9', slug: 'missed', name: 'Missed One', status: 'ended' },
+    ]);
+    await store.record({
+      slug: 'missed', name: 'Missed One', at: 1, success: true, entries: 1, reason: null,
+      retryAfter: null,
+    });
+
+    expect(await announcer.reconcile()).toBe(1);
+
+    expect(won).toHaveBeenCalledOnce();
+    expect(store.wonCount).toBe(1);
+  });
+
+  it('does not announce a win for a raffle it never entered', async () => {
+    // Older than the bot, or entered by hand. Remember it, stay quiet.
+    const { store, announcer, won } = await make(vi.fn(async () => true), [
+      { _id: '9', slug: 'not-mine', name: 'Before The Bot', status: 'ended' },
+    ]);
+
+    expect(await announcer.reconcile()).toBe(0);
+
+    expect(won).not.toHaveBeenCalled();
+    expect(store.wonCount).toBe(1);
+    expect(store.pendingWins()).toHaveLength(0);
+  });
+
+  it('does not re-announce a win it already knows about', async () => {
+    const { store, announcer, won } = await make(vi.fn(async () => true), [
+      { _id: '1', slug: 'r1', name: 'R1', status: 'ended' },
+    ]);
+    await announcer.announce(raffle, undefined);
+    won.mockClear();
+
+    expect(await announcer.reconcile()).toBe(0);
+
+    expect(won).not.toHaveBeenCalled();
+    expect(store.wonCount).toBe(1);
+  });
+
+  it('survives alphabot being unavailable', async () => {
+    const { announcer, get } = await make();
+    get.mockRejectedValue(new Error('offline'));
+
+    await expect(announcer.reconcile()).resolves.toBe(0);
   });
 });

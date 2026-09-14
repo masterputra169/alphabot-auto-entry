@@ -51,7 +51,7 @@ function byCost(a: BlockingRole, b: BlockingRole): number {
 export interface BlockerReportDeps {
   config: AppConfig;
   client: AlphabotClient;
-  store: Pick<EntryStore, 'blockedSlugs'>;
+  store: Pick<EntryStore, 'blockedSlugs' | 'get'>;
 }
 
 /**
@@ -66,6 +66,14 @@ export interface BlockerReportDeps {
 export class BlockerReport {
   /** slug -> the servers that raffle requires. */
   private readonly servers = new Map<string, ServerRequirement[]>();
+  /**
+   * projectId -> the servers one of its raffles turned out to require.
+   *
+   * Alphabot runs whole families of raffles off a single project and they
+   * share the Discord requirement, so answering for the family from one
+   * lookup is the difference between the report keeping up and not.
+   */
+  private readonly byProject = new Map<string, ServerRequirement[]>();
   /** Slugs already looked up, so budget is never spent twice on one raffle. */
   private readonly examined = new Set<string>();
   private timer: NodeJS.Timeout | null = null;
@@ -106,10 +114,28 @@ export class BlockerReport {
     const blocked = store.blockedSlugs('discord');
     let resolved = 0;
 
+    let shared = 0;
+    let spent = false;
+
     for (const slug of blocked) {
       if (this.examined.has(slug)) continue;
-      if (resolved >= config.poll.maxResolvesPerCycle) break;
-      if (client.budgetRemaining <= BUDGET_RESERVE) break;
+
+      // Free: a sibling of the same project already established this, whether
+      // on an earlier cycle or moments ago in this very loop. Checked before
+      // the budget, so an exhausted budget cannot stop it.
+      const known = this.projectServers(slug);
+      if (known) {
+        this.servers.set(slug, known);
+        this.examined.add(slug);
+        shared += 1;
+        continue;
+      }
+
+      // Out of budget or out of turns: skip rather than break, because a
+      // later raffle may still be answerable from the cache for nothing.
+      if (spent) continue;
+      if (resolved >= config.poll.maxResolvesPerCycle) continue;
+      if (client.budgetRemaining <= BUDGET_RESERVE) continue;
 
       try {
         const raffle = await getRaffleWithRequirements(client, slug);
@@ -128,9 +154,16 @@ export class BlockerReport {
               .sort(byCost),
           }));
 
-        if (servers.length > 0) this.servers.set(slug, servers);
+        if (servers.length > 0) {
+          this.servers.set(slug, servers);
+          const projectId = this.projectOf(slug);
+          if (projectId) this.byProject.set(projectId, servers);
+        }
       } catch (error) {
-        if (error instanceof BudgetExhaustedError) break;
+        if (error instanceof BudgetExhaustedError) {
+          spent = true;
+          continue;
+        }
         if (error instanceof AuthError) {
           log.error('Blocker report halted: Alphabot rejected the API key');
           break;
@@ -145,9 +178,10 @@ export class BlockerReport {
 
     this.prune(new Set(blocked));
 
-    if (resolved > 0) {
+    if (resolved > 0 || shared > 0) {
       const top = this.ranked[0];
       log.info(`Blocker report looked up ${resolved} raffles`, {
+        fromProjectCache: shared,
         stillPending: this.pending,
         topServer: top
           ? `${top.label} unlocks ${top.raffles}`
@@ -159,13 +193,33 @@ export class BlockerReport {
     }
   }
 
-  /** Forget raffles that are no longer blocked, so the map cannot grow forever. */
+  /** The project this raffle belongs to, when the store knows of one. */
+  private projectOf(slug: string): string | undefined {
+    return this.deps.store.get(slug)?.projectId;
+  }
+
+  /** Requirements a sibling raffle of the same project already established. */
+  private projectServers(slug: string): ServerRequirement[] | undefined {
+    const projectId = this.projectOf(slug);
+    return projectId ? this.byProject.get(projectId) : undefined;
+  }
+
+  /** Forget raffles that are no longer blocked, so the maps cannot grow forever. */
   private prune(blocked: ReadonlySet<string>): void {
     for (const slug of this.servers.keys()) {
       if (!blocked.has(slug)) this.servers.delete(slug);
     }
     for (const slug of this.examined) {
       if (!blocked.has(slug)) this.examined.delete(slug);
+    }
+
+    const live = new Set<string>();
+    for (const slug of blocked) {
+      const projectId = this.projectOf(slug);
+      if (projectId) live.add(projectId);
+    }
+    for (const projectId of this.byProject.keys()) {
+      if (!live.has(projectId)) this.byProject.delete(projectId);
     }
   }
 

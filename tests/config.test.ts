@@ -14,13 +14,14 @@ function writeConfig(body: unknown): string {
 const VALID = {
   poll: {
     enabled: true, intervalSeconds: 600, pageSize: 50,
-    resolveDiscordRequirements: true, maxResolvesPerCycle: 10,
+    resolveDiscordRequirements: true, maxResolvesPerCycle: 10, reconcileWinsHours: 6,
   },
   entry: {
     delayMs: 700, dryRun: false, skipCaptcha: true, skipNftHolding: true,
     skipTokenGated: true, allowedBlockchains: [], excludeKeywords: [], minWinnerCount: 0,
-    retryHours: 6,
+    retryHours: 6, maxRetryHours: 24,
   },
+  notify: { blockerDigestHours: 168, blockerDigestSize: 5 },
   discord: {
     requireGuildWhitelist: true, guildMatchMode: 'any',
     guildIds: [], refreshHours: 6,

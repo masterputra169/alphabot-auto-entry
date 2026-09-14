@@ -13,6 +13,8 @@ const fileSchema = z.object({
     pageSize: z.number().int().min(1).max(50),
     resolveDiscordRequirements: z.boolean(),
     maxResolvesPerCycle: z.number().int().min(0).max(24),
+    /** How often to ask Alphabot which raffles were won. 0 disables it. */
+    reconcileWinsHours: z.number().min(0).max(168),
   }),
   entry: z.object({
     delayMs: z.number().int().min(100),
@@ -24,6 +26,18 @@ const fileSchema = z.object({
     excludeKeywords: z.array(z.string()),
     minWinnerCount: z.number().int().min(0),
     retryHours: z.number().min(0).max(168),
+    /**
+     * Ceiling for the retry delay. Each further decline for the same reason
+     * doubles the wait, so a raffle nobody is going to unblock stops costing
+     * an attempt every few hours.
+     */
+    maxRetryHours: z.number().min(0).max(168),
+  }),
+  notify: z.object({
+    /** How often to post the "servers worth joining" digest. 0 disables it. */
+    blockerDigestHours: z.number().min(0).max(168),
+    /** How many servers that digest names. */
+    blockerDigestSize: z.number().int().min(1).max(25),
   }),
   discord: z.object({
     requireGuildWhitelist: z.boolean(),

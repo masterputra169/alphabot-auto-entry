@@ -1,6 +1,7 @@
 import { log } from '../logger.js';
 import type { RaffleEntry, RaffleForList } from '../api/types.js';
 import type { RegisterOutcome } from '../api/raffles.js';
+import type { BlockingServer } from '../core/blocker-report.js';
 import type { SkipReason } from '../core/filter.js';
 import { WebhookSender, type SenderOptions } from './sender.js';
 
@@ -8,6 +9,7 @@ const COLOR_SUCCESS = 0x2ecc71;
 const COLOR_FAILURE = 0xe67e22;
 const COLOR_WIN = 0xf1c40f;
 const COLOR_FATAL = 0xe74c3c;
+const COLOR_INFO = 0x5865f2;
 
 interface EmbedField {
   name: string;
@@ -135,6 +137,39 @@ export class DiscordNotifier {
       title: 'Alphabot Auto Entry stopped',
       description: message.slice(0, 1000),
       color: COLOR_FATAL,
+      timestamp: new Date().toISOString(),
+    });
+  }
+
+  /**
+   * The one message that asks something of the owner.
+   *
+   * Hundreds of raffles sit behind a handful of Discord servers, and that is
+   * the only part of the yield the bot cannot improve on its own. Until now
+   * the answer lived in `/health`, where nobody was going to look.
+   */
+  async blockers(servers: BlockingServer[], pending: number): Promise<boolean> {
+    if (servers.length === 0) return true;
+
+    const fields: EmbedField[] = servers.map((server) => ({
+      name: `${server.label} — ${server.raffles} raffle${server.raffles === 1 ? '' : 's'}`,
+      value: [
+        // Roles are alternatives, not a checklist, so only the cheapest matters.
+        server.roles.length > 0
+          ? `Cheapest role: **${server.roles[0]?.name}**`
+          : 'Membership is enough',
+        server.invite ?? 'No invite published',
+      ].join('\n'),
+      inline: false,
+    }));
+
+    return this.send({
+      title: 'Servers worth joining',
+      description: pending > 0
+        ? `${pending} more blocked raffles have not been looked up yet.`
+        : undefined,
+      color: COLOR_INFO,
+      fields,
       timestamp: new Date().toISOString(),
     });
   }

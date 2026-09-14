@@ -12,9 +12,10 @@ const config = (over: Partial<AppConfig['entry']> = {}): AppConfig => ({
   entry: {
     delayMs: 700, dryRun: false, skipCaptcha: true, skipNftHolding: true,
     skipTokenGated: true, allowedBlockchains: [], excludeKeywords: [], minWinnerCount: 0,
-    retryHours: 6,
+    retryHours: 6, maxRetryHours: 24,
     ...over,
   },
+  notify: { blockerDigestHours: 168, blockerDigestSize: 5 },
   discord: {
     requireGuildWhitelist: true, guildMatchMode: 'any',
     guildIds: [], refreshHours: 6,
@@ -30,10 +31,11 @@ const raffle = (over: Partial<RaffleWithRequirements> = {}): RaffleWithRequireme
 
 function harness(over: Record<string, unknown> = {}) {
   const post = vi.fn(async () => ({ validation: { success: true, entries: 1 } }));
-  const entered: string[] = [];
+  const records = new Map<string, Record<string, unknown>>();
   const store = {
-    isBlocked: (slug: string) => entered.includes(slug),
-    record: vi.fn(async (r: { slug: string }) => { entered.push(r.slug); }),
+    isBlocked: (slug: string) => records.has(slug),
+    get: (slug: string) => records.get(slug),
+    record: vi.fn(async (r: { slug: string }) => { records.set(r.slug, r); }),
   };
   const notifier = {
     entered: vi.fn(async () => {}), failed: vi.fn(async () => {}),
@@ -49,7 +51,7 @@ function harness(over: Record<string, unknown> = {}) {
     sleep: async () => {},
     ...over,
   } as never);
-  return { queue, post, store, notifier };
+  return { queue, post, store, notifier, records };
 }
 
 beforeEach(() => vi.clearAllMocks());
@@ -324,7 +326,9 @@ describe('EntryQueue', () => {
     const post = vi.fn().mockRejectedValue(new Error('boom'));
     // A store that forgets, so the retry is not blocked by `already_entered`
     // and the test isolates the in-flight guard itself.
-    const store = { isBlocked: () => false, record: vi.fn(async () => {}) };
+    const store = {
+      isBlocked: () => false, get: () => undefined, record: vi.fn(async () => {}),
+    };
     const { queue } = harness({ client: { post, get: vi.fn() }, store });
 
     queue.submit(raffle(), 'poller');
@@ -414,5 +418,80 @@ describe('EntryQueue', () => {
 
     expect(queue.depth).toBe(0);
     expect(post).toHaveBeenCalledTimes(2);
+  });
+
+  it('waits longer each time a raffle is declined for the same reason', async () => {
+    const post = vi.fn(async () => ({ validation: { success: false, reason: 'tasks' } }));
+    const { queue, records } = harness({
+      client: { post, get: vi.fn() },
+      store: {
+        isBlocked: () => false,
+        get: (slug: string) => records.get(slug),
+        record: vi.fn(async (r: { slug: string }) => { records.set(r.slug, r); }),
+      },
+    });
+
+    queue.submit(raffle(), 'webhook');
+    await queue.idle();
+    const first = records.get('r1') as { retryAfter: number; attempts: number };
+
+    queue.submit(raffle(), 'webhook');
+    await queue.idle();
+    const second = records.get('r1') as { retryAfter: number; attempts: number };
+
+    expect(first.attempts).toBe(1);
+    expect(second.attempts).toBe(2);
+    expect(second.retryAfter - first.retryAfter).toBeGreaterThan(5 * 3_600_000);
+  });
+
+  it('starts the wait over when the reason changes', async () => {
+    let reason = 'tasks';
+    const post = vi.fn(async () => ({ validation: { success: false, reason } }));
+    const { queue, records } = harness({
+      client: { post, get: vi.fn() },
+      store: {
+        isBlocked: () => false,
+        get: (slug: string) => records.get(slug),
+        record: vi.fn(async (r: { slug: string }) => { records.set(r.slug, r); }),
+      },
+    });
+
+    queue.submit(raffle(), 'webhook');
+    await queue.idle();
+    reason = 'something else';
+    queue.submit(raffle(), 'webhook');
+    await queue.idle();
+
+    expect((records.get('r1') as { attempts: number }).attempts).toBe(1);
+  });
+
+  it('never waits longer than the configured ceiling', async () => {
+    const post = vi.fn(async () => ({ validation: { success: false, reason: 'tasks' } }));
+    const { queue, records } = harness({
+      config: config({ retryHours: 6, maxRetryHours: 12 }),
+      client: { post, get: vi.fn() },
+      store: {
+        isBlocked: () => false,
+        get: (slug: string) => records.get(slug),
+        record: vi.fn(async (r: { slug: string }) => { records.set(r.slug, r); }),
+      },
+    });
+
+    for (let i = 0; i < 5; i += 1) {
+      queue.submit(raffle(), 'webhook');
+      await queue.idle();
+    }
+
+    const record = records.get('r1') as { retryAfter: number };
+    expect(record.retryAfter - Date.now()).toBeLessThanOrEqual(12 * 3_600_000 + 1000);
+  });
+
+  it('records the project, so sibling raffles can share one requirement lookup', async () => {
+    const { queue, records } = harness();
+
+    queue.submit(raffle({ projectId: 'proj-1' }), 'webhook');
+    await queue.idle();
+
+    expect((records.get('r1') as { projectId: string }).projectId).toBe('proj-1');
   });
 });

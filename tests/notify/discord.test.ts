@@ -218,4 +218,43 @@ describe('DiscordNotifier', () => {
 
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
+
+  it('posts a digest naming the servers worth joining', async () => {
+    const { notifier, fetchImpl } = make();
+
+    await notifier.blockers([
+      {
+        id: 'g1',
+        label: 'Habibi Alpha',
+        raffles: 4,
+        invite: 'https://discord.gg/abc',
+        roles: [{ name: 'Circle', val: 1 }, { name: 'SUPER HABIBI', val: 10 }],
+      },
+    ], 293);
+
+    const embed = bodyOf(fetchImpl).embeds[0];
+    expect(embed.title).toContain('worth joining');
+    const field = embed.fields[0];
+    expect(field.name).toContain('Habibi Alpha');
+    expect(field.name).toContain('4');
+    // The cheapest role is the one that actually unblocks the raffles.
+    expect(field.value).toContain('Circle');
+    expect(field.value).not.toContain('SUPER HABIBI');
+    expect(field.value).toContain('https://discord.gg/abc');
+    expect(embed.description).toContain('293');
+  });
+
+  it('says so when plain membership is enough', async () => {
+    const { notifier, fetchImpl } = make();
+    await notifier.blockers([
+      { id: 'g1', label: 'Open Server', raffles: 1, invite: null, roles: [] },
+    ], 0);
+    expect(bodyOf(fetchImpl).embeds[0].fields[0].value).toContain('Membership');
+  });
+
+  it('stays quiet when nothing is blocking', async () => {
+    const { notifier, fetchImpl } = make();
+    await expect(notifier.blockers([], 0)).resolves.toBe(true);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
 });

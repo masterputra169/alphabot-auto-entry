@@ -12,7 +12,7 @@ export type EntrySource = 'webhook' | 'poller';
 export interface EntryQueueDeps {
   config: AppConfig;
   client: AlphabotClient;
-  store: Pick<EntryStore, 'isBlocked' | 'record'>;
+  store: Pick<EntryStore, 'isBlocked' | 'record' | 'get'>;
   notifier: DiscordNotifier;
   guilds: { getGuildIds: () => Promise<ReadonlySet<string>> };
   sleep?: (ms: number) => Promise<void>;
@@ -166,6 +166,7 @@ export class EntryQueue {
     try {
       const outcome = await register(client, input);
 
+      const attempts = outcome.success ? 1 : this.declineCount(raffle.slug, outcome.reason);
       await store.record({
         slug: raffle.slug,
         name: raffle.name,
@@ -174,7 +175,9 @@ export class EntryQueue {
         entries: outcome.entries,
         reason: outcome.reason,
         blockers: outcome.blockers,
-        retryAfter: outcome.success ? null : this.retryAt(outcome.reason),
+        attempts,
+        projectId: raffle.projectId,
+        retryAfter: outcome.success ? null : this.retryAt(outcome.reason, attempts),
       });
 
       if (outcome.success) {
@@ -203,6 +206,7 @@ export class EntryQueue {
       // An unknown outcome (5xx, network, retries exhausted) stays permanent.
       const declined = error instanceof ApiError && error.declined;
 
+      const attempts = this.declineCount(raffle.slug, message);
       await store.record({
         slug: raffle.slug,
         name: raffle.name,
@@ -210,7 +214,9 @@ export class EntryQueue {
         success: false,
         entries: null,
         reason: message,
-        retryAfter: declined ? this.retryAt(null) : null,
+        attempts,
+        projectId: raffle.projectId,
+        retryAfter: declined ? this.retryAt(message, attempts) : null,
       });
 
       if (declined) {
@@ -223,12 +229,28 @@ export class EntryQueue {
   }
 
   /**
+   * How many times in a row this raffle has been declined for this same
+   * reason. A different reason means something moved, so the count starts
+   * over rather than punishing a raffle for an unrelated earlier failure.
+   */
+  private declineCount(slug: string, reason: string | null): number {
+    const previous = this.deps.store.get(slug);
+    if (!previous || previous.success) return 1;
+    return previous.reason === reason ? (previous.attempts ?? 1) + 1 : 1;
+  }
+
+  /**
    * When to try again, or null for never. A raffle that has ended can never
    * be entered, so rescheduling it would burn register calls for nothing.
-   * Anything else the owner may still be able to satisfy.
+   * Anything else the owner may still be able to satisfy — but the same
+   * refusal arriving over and over means nobody is going to, so each repeat
+   * doubles the wait up to the configured ceiling.
    */
-  private retryAt(reason: string | null): number | null {
+  private retryAt(reason: string | null, attempts: number): number | null {
     if (reason !== null && FINAL_REASONS.has(reason)) return null;
-    return Date.now() + this.deps.config.entry.retryHours * 3_600_000;
+
+    const { retryHours, maxRetryHours } = this.deps.config.entry;
+    const hours = Math.min(retryHours * 2 ** (attempts - 1), maxRetryHours);
+    return Date.now() + hours * 3_600_000;
   }
 }

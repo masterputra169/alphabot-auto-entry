@@ -333,4 +333,24 @@ describe('EntryStore', () => {
     expect(second.size).toBe(1);
     expect(second.has('kept')).toBe(true);
   });
+
+  it('seeds a win as already announced, so it is never replayed', async () => {
+    const store = await EntryStore.open(tempDir());
+
+    await store.seedWon('older-than-the-bot', 'Old Win');
+
+    expect(store.wonCount).toBe(1);
+    expect(store.pendingWins()).toHaveLength(0);
+    expect(await store.markWon('older-than-the-bot', 'Old Win')).toBe(false);
+  });
+
+  it('does not let seeding overwrite a win that still needs announcing', async () => {
+    const store = await EntryStore.open(tempDir());
+    await store.markWon('lucky', 'Lucky Raffle');
+    await store.settleWin('lucky', false);
+
+    await store.seedWon('lucky', 'Lucky Raffle');
+
+    expect(store.pendingWins().map((r) => r.slug)).toEqual(['lucky']);
+  });
 });

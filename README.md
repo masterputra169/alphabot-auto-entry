@@ -37,6 +37,12 @@ Requires an active Alphabot subscription — the API is subscription-gated.
   network failure is retried with backoff. Entering a raffle never waits on any of this — a
   first-come raffle is not going to wait for a chat message — and a shutdown flushes whatever
   is still queued.
+- **A missed win is still found.** Webhooks are the fast path, but a `raffle:won` delivered while
+  the container is restarting is simply gone, and a win nobody was ever told about looks exactly
+  like a win whose alert failed. So the bot also asks Alphabot outright which raffles it has won,
+  at startup and every few hours, and announces anything the webhooks never delivered. Wins on
+  raffles this bot did not enter are recorded but not announced - they are the owner's own, and a
+  first run could turn up years of them.
 - **The record stays small.** Every attempt rewrites `entered.json` whole, so a raffle whose
   retry time has passed is forgotten — it was already eligible again, and keeping it changed no
   decision. Compaction runs on startup and once a poll cycle. `attempted` in `/health` therefore
@@ -130,6 +136,11 @@ Deal with the server at the top and the bot enters those raffles by itself on th
 pass - no restart, nothing to click. `blockingServersPending` says how many blocked raffles have not
 been looked up yet; they are worked through within the hourly GET budget.
 
+You do not have to go looking for this: the same list is posted to the notify channel once a day,
+and once at startup. Alphabot also runs whole families of raffles off one project, and those share
+a Discord requirement, so one lookup answers for the whole family instead of one GET each - which
+is the difference between the report keeping up and staying hundreds of raffles behind.
+
 ## Tuning
 
 Edit `config.json` and redeploy. The defaults skip raffles needing an NFT holding, a token or ETH
@@ -142,6 +153,10 @@ balance, or a Discord server you have not joined.
 | `entry.excludeKeywords` | Case-insensitive substrings matched against the raffle name |
 | `entry.minWinnerCount` | Ignore raffles with very few winners |
 | `entry.retryHours` | How long before a declined entry is attempted again (default 6). A raffle Alphabot reports as ended, or as already won, is never rescheduled. |
+| `entry.maxRetryHours` | Ceiling on that wait (default 24). Each further decline for the same reason doubles it, so a raffle nobody is going to unblock stops costing an attempt every few hours. A different reason starts the count over. |
+| `poll.reconcileWinsHours` | How often to ask Alphabot which raffles were won (default 6, `0` disables). Costs one GET. |
+| `notify.blockerDigestHours` | How often to post the "servers worth joining" digest (default 24, `0` disables). Also sent once at startup, since a timer on a service that redeploys would otherwise rarely fire. |
+| `notify.blockerDigestSize` | How many servers that digest names (default 5). |
 | `entry.skipNftHolding` | Set `false` to attempt raffles requiring an NFT you may hold |
 | `entry.skipCaptcha` | Default `false`: attempt CAPTCHA-flagged raffles and let Alphabot decide |
 | `discord.requireGuildWhitelist` | Set `false` to attempt Discord-gated raffles regardless |
