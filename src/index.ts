@@ -30,6 +30,7 @@ async function main(): Promise<void> {
   registerSecret(loaded.env.notifyWebhookUrl);
   registerSecret(loaded.env.winWebhookUrl);
   registerSecret(loaded.env.rafflePassword);
+  registerSecret(loaded.env.adminToken);
 
   const dryRun = process.argv.includes('--dry-run') || loaded.entry.dryRun;
   const config: AppConfig = dryRun

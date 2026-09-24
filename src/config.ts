@@ -68,6 +68,11 @@ export interface EnvConfig {
   /** Sent as message content beside a win embed, e.g. `@everyone`, so it pings. */
   winMention: string | null;
   rafflePassword: string | null;
+  /**
+   * Guards the owner-only routes: `/discord/connect` and the detailed
+   * `/health`. Unset means those routes stay locked.
+   */
+  adminToken: string | null;
 }
 
 export interface AppConfig extends FileConfig {
@@ -137,6 +142,7 @@ export function loadConfig(opts: LoadOptions = {}): AppConfig {
       winWebhookUrl: optional(env.DISCORD_WIN_WEBHOOK_URL),
       winMention: optional(env.DISCORD_WIN_MENTION),
       rafflePassword: optional(env.RAFFLE_PASSWORD),
+      adminToken: optional(env.ADMIN_TOKEN),
     },
   });
 }
