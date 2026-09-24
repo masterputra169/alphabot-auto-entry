@@ -117,10 +117,11 @@ describe('loadConfig', () => {
   it('treats blank optional env values as null', () => {
     const cfg = loadConfig({
       configPath: writeConfig(VALID),
-      env: { ALPHABOT_API_KEY: 'k', DISCORD_CLIENT_ID: '   ', RAFFLE_PASSWORD: '' },
+      env: { ALPHABOT_API_KEY: 'k', DISCORD_CLIENT_ID: '   ', RAFFLE_PASSWORD: '', ADMIN_TOKEN: ' ' },
     });
     expect(cfg.env.discordClientId).toBeNull();
     expect(cfg.env.rafflePassword).toBeNull();
+    expect(cfg.env.adminToken).toBeNull();
   });
 
   it('reads the win webhook url from the environment', () => {

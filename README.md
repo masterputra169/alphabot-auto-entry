@@ -94,14 +94,17 @@ node dist/index.js --dry-run   # rehearse without registering anything
    | `DISCORD_GUILD_IDS` | optional, comma separated, merged with the OAuth list |
    | `MINT_ADDRESS` | optional, wallet submitted with each entry; overrides `submission.mintAddress` |
    | `RAFFLE_PASSWORD` | optional, answer for password-gated raffles |
+   | `ADMIN_TOKEN` | long random string (`openssl rand -hex 32`); unlocks `/discord/connect` and the detailed `/health` |
 
 5. **Discord app:** create one at <https://discord.com/developers/applications>, then add the
    redirect URI `https://<your-domain>/discord/callback`.
-6. Open `https://<your-domain>/discord/connect` once and authorize.
+6. Open `https://<your-domain>/discord/connect?token=<ADMIN_TOKEN>` once and authorize. Without
+   the token the route answers 403, so a stranger cannot link their own Discord account in place of yours.
 7. **Alphabot webhook:** in your Alphabot profile developer section, set the webhook URL to
    `https://<your-domain>/alphabot`. Alphabot sends `webhook:test`; a 200 saves it.
 
-`https://<your-domain>/health` reports uptime, queue depth, remaining GET budget, `attempted`
+`https://<your-domain>/health?token=<ADMIN_TOKEN>` (or an `Authorization: Bearer <ADMIN_TOKEN>`
+header) reports uptime, queue depth, remaining GET budget, `attempted`
 (every raffle tried) versus `entered` (the ones Alphabot accepted) versus `won`, `blockedBy` (a
 count of the raffles currently held back, grouped by Alphabot's own rejection reason),
 `blockedByTask`, and whether Discord is connected.

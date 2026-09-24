@@ -6,6 +6,7 @@ import { createServer, type ServerDeps } from '../../src/webhook/server.js';
 import type { AppConfig } from '../../src/config.js';
 
 const KEY = 'server-test-key';
+const ADMIN = 'admin-test-token';
 
 const config = (envOver: Partial<AppConfig['env']> = {}): AppConfig => ({
   poll: {
@@ -26,7 +27,7 @@ const config = (envOver: Partial<AppConfig['env']> = {}): AppConfig => ({
     alphabotApiKey: KEY, port: 0, dataDir: './data', publicBaseUrl: 'https://app.test',
     discordClientId: 'cid', discordClientSecret: 'csecret',
     notifyWebhookUrl: null, winWebhookUrl: null, winMention: null,
-    rafflePassword: null, ...envOver,
+    rafflePassword: null, adminToken: ADMIN, ...envOver,
   },
 });
 
@@ -67,9 +68,38 @@ function signedBody(event: string, data: unknown = {}) {
 const settle = () => new Promise((r) => setTimeout(r, 30));
 
 describe('server', () => {
-  it('answers GET /health with status json', async () => {
+  it('answers GET /health without a token with only liveness', async () => {
     const { base } = start();
     const response = await fetch(`${base}/health`);
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.ok).toBe(true);
+    expect(Object.keys(body).sort()).toEqual(['ok', 'uptimeSeconds']);
+  });
+
+  it('hides /health stats behind a wrong token', async () => {
+    const { base } = start();
+    const body = await (await fetch(`${base}/health?token=wrong`)).json();
+    expect(body.entered).toBeUndefined();
+  });
+
+  it('keeps /health stats hidden when no admin token is configured', async () => {
+    const { base } = start({ config: config({ adminToken: null }) });
+    const body = await (await fetch(`${base}/health?token=`)).json();
+    expect(body.entered).toBeUndefined();
+  });
+
+  it('accepts the admin token as a bearer header on /health', async () => {
+    const { base } = start();
+    const response = await fetch(`${base}/health`, {
+      headers: { authorization: `Bearer ${ADMIN}` },
+    });
+    expect((await response.json()).entered).toBe(2);
+  });
+
+  it('answers GET /health with the admin token with status json', async () => {
+    const { base } = start();
+    const response = await fetch(`${base}/health?token=${ADMIN}`);
     expect(response.status).toBe(200);
     const body = await response.json();
     expect(body.ok).toBe(true);
@@ -132,7 +162,7 @@ describe('server', () => {
 
   it('redirects /discord/connect to discord', async () => {
     const { base } = start();
-    const response = await fetch(`${base}/discord/connect`, { redirect: 'manual' });
+    const response = await fetch(`${base}/discord/connect?token=${ADMIN}`, { redirect: 'manual' });
     expect(response.status).toBe(302);
     const location = new URL(response.headers.get('location') as string);
     expect(location.host).toBe('discord.com');
@@ -142,8 +172,28 @@ describe('server', () => {
 
   it('reports 503 on /discord/connect when oauth is not configured', async () => {
     const { base } = start({ config: config({ discordClientId: null }) });
-    const response = await fetch(`${base}/discord/connect`, { redirect: 'manual' });
+    const response = await fetch(`${base}/discord/connect?token=${ADMIN}`, { redirect: 'manual' });
     expect(response.status).toBe(503);
+  });
+
+  it('refuses /discord/connect without the admin token', async () => {
+    const { base } = start();
+    const response = await fetch(`${base}/discord/connect`, { redirect: 'manual' });
+    expect(response.status).toBe(403);
+    expect(response.headers.get('location')).toBeNull();
+  });
+
+  it('refuses /discord/connect with a wrong admin token', async () => {
+    const { base } = start();
+    const response = await fetch(`${base}/discord/connect?token=nope`, { redirect: 'manual' });
+    expect(response.status).toBe(403);
+  });
+
+  it('locks /discord/connect when no admin token is configured', async () => {
+    const { base } = start({ config: config({ adminToken: null }) });
+    const response = await fetch(`${base}/discord/connect?token=`, { redirect: 'manual' });
+    expect(response.status).toBe(503);
+    expect(response.headers.get('location')).toBeNull();
   });
 
   it('rejects a callback with an invalid state', async () => {
@@ -164,7 +214,7 @@ describe('server', () => {
 
     // Reuse the server's own state generator by hitting /discord/connect first.
     const { base, saveTokens } = start({ fetchImpl: fetchImpl as unknown as typeof fetch });
-    const redirect = await fetch(`${base}/discord/connect`, { redirect: 'manual' });
+    const redirect = await fetch(`${base}/discord/connect?token=${ADMIN}`, { redirect: 'manual' });
     const state = new URL(redirect.headers.get('location') as string).searchParams.get('state');
 
     const response = await fetch(`${base}/discord/callback?code=abc&state=${state}`);
@@ -176,7 +226,7 @@ describe('server', () => {
   it('reports 502 when discord rejects the code exchange', async () => {
     const fetchImpl = vi.fn(async () => new Response('{"error":"invalid_grant"}', { status: 400 }));
     const { base } = start({ fetchImpl: fetchImpl as unknown as typeof fetch });
-    const redirect = await fetch(`${base}/discord/connect`, { redirect: 'manual' });
+    const redirect = await fetch(`${base}/discord/connect?token=${ADMIN}`, { redirect: 'manual' });
     const state = new URL(redirect.headers.get('location') as string).searchParams.get('state');
 
     const response = await fetch(`${base}/discord/callback?code=bad&state=${state}`);

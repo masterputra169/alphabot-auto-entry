@@ -4,6 +4,7 @@ import {
   type Server,
   type ServerResponse,
 } from 'node:http';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import type { AlphabotClient } from '../api/client.js';
 import type { AppConfig } from '../config.js';
 import type { BlockerReport } from '../core/blocker-report.js';
@@ -68,6 +69,21 @@ function oauthConfig(config: AppConfig): OAuthConfig | null {
   };
 }
 
+/**
+ * True when the request carries the admin token, as `?token=` or as an
+ * `Authorization: Bearer` header. With no token configured nothing matches.
+ */
+function isAdmin(req: IncomingMessage, url: URL, adminToken: string | null): boolean {
+  if (!adminToken) return false;
+  const header = req.headers.authorization;
+  const bearer = header?.startsWith('Bearer ') ? header.slice('Bearer '.length) : null;
+  const given = url.searchParams.get('token') ?? bearer;
+  if (!given) return false;
+  // Hashing first gives equal-length buffers, so the compare leaks no length.
+  const digest = (value: string) => createHash('sha256').update(value).digest();
+  return timingSafeEqual(digest(given), digest(adminToken));
+}
+
 export function createServer(deps: ServerDeps): Server {
   const { config } = deps;
   const apiKey = config.env.alphabotApiKey;
@@ -76,9 +92,15 @@ export function createServer(deps: ServerDeps): Server {
     const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
 
     if (req.method === 'GET' && url.pathname === '/health') {
+      const uptimeSeconds = Math.round((Date.now() - deps.startedAt) / 1000);
+      // The platform health check only needs a 200. Stats stay owner-only.
+      if (!isAdmin(req, url, config.env.adminToken)) {
+        send(res, 200, JSON.stringify({ ok: true, uptimeSeconds }), 'application/json');
+        return;
+      }
       send(res, 200, JSON.stringify({
         ok: true,
-        uptimeSeconds: Math.round((Date.now() - deps.startedAt) / 1000),
+        uptimeSeconds,
         queueDepth: deps.queue.depth,
         attempted: deps.store.size,
         entered: deps.store.enteredCount,
@@ -125,6 +147,16 @@ export function createServer(deps: ServerDeps): Server {
     }
 
     if (req.method === 'GET' && url.pathname === '/discord/connect') {
+      // Without this anyone who finds the URL could link their own Discord
+      // account and overwrite the owner's tokens.
+      if (!config.env.adminToken) {
+        send(res, 503, 'Set ADMIN_TOKEN, then open /discord/connect?token=<ADMIN_TOKEN>.');
+        return;
+      }
+      if (!isAdmin(req, url, config.env.adminToken)) {
+        send(res, 403, 'Forbidden');
+        return;
+      }
       const oauth = oauthConfig(config);
       if (!oauth) {
         send(res, 503, 'Discord OAuth is not configured. Set DISCORD_CLIENT_ID, '
